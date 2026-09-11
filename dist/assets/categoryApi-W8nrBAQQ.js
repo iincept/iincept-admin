@@ -1,0 +1,1 @@
+import{b as e}from"./index-Be4nZKOa.js";var t=async()=>(await e.get(`/categories`)).data,n=async t=>(await e.post(`/categories`,t)).data,r=async t=>(await e.delete(`/categories/${t}`)).data;export{r as n,t as r,n as t};
