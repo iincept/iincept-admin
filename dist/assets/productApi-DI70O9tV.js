@@ -1,0 +1,1 @@
+import{b as e}from"./index-CLhHLFrG.js";var t=async(t={})=>(await e.get(`/products`,{params:t})).data,n=async t=>(await e.post(`/products`,t)).data,r=async(t,n)=>(await e.put(`/products/${t}`,n)).data,i=async t=>(await e.delete(`/products/${t}`)).data;export{r as i,i as n,t as r,n as t};
