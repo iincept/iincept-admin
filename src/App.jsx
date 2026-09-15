@@ -19,11 +19,13 @@ const Testimonials = lazy(() => import('@admin-pages/Testimonials'));
 const NavbarManager = lazy(() => import('@admin-pages/NavbarManager'));
 const CategoryIconsManager = lazy(() => import('@admin-pages/CategoryIconsManager'));
 const AppleCareManager = lazy(() => import('@admin-pages/AppleCareManager'));
+const DisplayAppleCareManager = lazy(() => import('@admin-pages/DisplayAppleCareManager'));
 const IpadAppleCareManager = lazy(() => import('@admin-pages/IpadAppleCareManager'));
 const IphoneAppleCareManager = lazy(() => import('@admin-pages/IphoneAppleCareManager'));
 const WatchAppleCareManager = lazy(() => import('@admin-pages/WatchAppleCareManager'));
 const AirpodsAppleCareManager = lazy(() => import('@admin-pages/AirpodsAppleCareManager'));
 const TvHomeAppleCareManager = lazy(() => import('@admin-pages/TvHomeAppleCareManager'));
+const HomePodAppleCareManager = lazy(() => import('@admin-pages/HomePodAppleCareManager'));
 const ProductAppleCareManager = lazy(() => import('@admin-pages/ProductAppleCareManager'));
 const FooterManager = lazy(() => import('@admin-pages/FooterManager'));
 const Returns = lazy(() => import('./pages/admin/Returns'));
@@ -67,12 +69,15 @@ const adminChildrenRoutes = [
   { path: 'navbar-menu', element: <Suspense fallback={<LoadingSpinner />}><NavbarManager /></Suspense> },
   { path: 'category-icons', element: <Suspense fallback={<LoadingSpinner />}><CategoryIconsManager /></Suspense> },
   { path: 'applecare', element: <Suspense fallback={<LoadingSpinner />}><AppleCareManager /></Suspense> },
+  { path: 'display-applecare', element: <Suspense fallback={<LoadingSpinner />}><DisplayAppleCareManager /></Suspense> },
+  { path: 'displayapplecare', element: <Suspense fallback={<LoadingSpinner />}><DisplayAppleCareManager /></Suspense> },
   { path: 'ipad-applecare', element: <Suspense fallback={<LoadingSpinner />}><IpadAppleCareManager /></Suspense> },
   { path: 'iphone-applecare', element: <Suspense fallback={<LoadingSpinner />}><IphoneAppleCareManager /></Suspense> },
   { path: 'watch-applecare', element: <Suspense fallback={<LoadingSpinner />}><WatchAppleCareManager /></Suspense> },
   { path: 'airpods-applecare', element: <Suspense fallback={<LoadingSpinner />}><AirpodsAppleCareManager /></Suspense> },
   { path: 'tv-home-applecare', element: <Suspense fallback={<LoadingSpinner />}><TvHomeAppleCareManager /></Suspense> },
   { path: 'tvhome-applecare', element: <Suspense fallback={<LoadingSpinner />}><TvHomeAppleCareManager /></Suspense> },
+  { path: 'homepod-applecare', element: <Suspense fallback={<LoadingSpinner />}><HomePodAppleCareManager /></Suspense> },
   { path: 'product-applecare', element: <Suspense fallback={<LoadingSpinner />}><ProductAppleCareManager /></Suspense> },
   { path: 'footer-menu', element: <Suspense fallback={<LoadingSpinner />}><FooterManager /></Suspense> },
   { path: 'settings', element: <Suspense fallback={<LoadingSpinner />}><Settings /></Suspense> },
