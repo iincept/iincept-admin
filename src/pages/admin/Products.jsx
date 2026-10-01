@@ -27,13 +27,23 @@ import {
   Smartphone,
   Monitor,
   Search,
-  History
+  History,
+  FileSpreadsheet,
+  Download,
+  Laptop,
+  Tablet,
+  Watch,
+  Headphones,
+  Plug,
+  Tv,
+  FileText
 } from 'lucide-react';
-import { getProducts, createProduct, updateProduct, deleteProduct } from '../../services/productApi';
+import { getProducts, createProduct, updateProduct, deleteProduct, exportProductsExcel, previewImportProductsExcel, importProductsExcel } from '../../services/productApi';
 import { getCategories } from '../../services/categoryApi';
 import axiosClient from '../../services/axiosClient';
 import VariantTagInput from '../../components/VariantTagInput';
 import { notifyAdminChange } from '../../services/liveSyncService';
+
 
 const resolveColorValue = (cVal) => {
   if (!cVal) return '#cbd5e1';
@@ -90,6 +100,91 @@ export default function Products() {
   const [stockLogs, setStockLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
 
+  // Category Excel Manager states
+  const [showExcelManagerModal, setShowExcelManagerModal] = useState(false);
+  const [exportingCategory, setExportingCategory] = useState(null);
+  
+  const [showExcelPreviewModal, setShowExcelPreviewModal] = useState(false);
+  const [selectedExcelFile, setSelectedExcelFile] = useState(null);
+  const [selectedCategoryForImport, setSelectedCategoryForImport] = useState(null);
+  const [loadingExcelPreview, setLoadingExcelPreview] = useState(false);
+  const [excelPreviewData, setExcelPreviewData] = useState(null);
+  const [importingExcel, setImportingExcel] = useState(false);
+
+  const CATEGORY_EXCEL_ITEMS = [
+    { key: 'mac', name: 'Mac', subtitle: 'MacBook Air, Pro, iMac, Mac Studio, Mac mini', icon: Laptop, color: 'bg-blue-600', textColor: 'text-blue-600', bgSoft: 'bg-blue-50 border-blue-200' },
+    { key: 'ipad', name: 'iPad', subtitle: 'iPad Pro, Air, mini, Standard iPad', icon: Tablet, color: 'bg-purple-600', textColor: 'text-purple-600', bgSoft: 'bg-purple-50 border-purple-200' },
+    { key: 'iphone', name: 'iPhone', subtitle: 'iPhone 16 Pro, 16, 15, 14, SE series', icon: Smartphone, color: 'bg-slate-800', textColor: 'text-slate-800', bgSoft: 'bg-slate-100 border-slate-300' },
+    { key: 'watch', name: 'Watch', subtitle: 'Apple Watch Series 12, 10, Ultra, SE', icon: Watch, color: 'bg-rose-600', textColor: 'text-rose-600', bgSoft: 'bg-rose-50 border-rose-200' },
+    { key: 'airpods', name: 'AirPods', subtitle: 'AirPods Pro 2, Max, AirPods 4, HomePod', icon: Headphones, color: 'bg-sky-600', textColor: 'text-sky-600', bgSoft: 'bg-sky-50 border-sky-200' },
+    { key: 'accessories', name: 'Accessories', subtitle: 'Cases, Chargers, MagSafe, Adapters', icon: Plug, color: 'bg-amber-600', textColor: 'text-amber-600', bgSoft: 'bg-amber-50 border-amber-200' },
+    { key: 'tv-home', name: 'TV & Home', subtitle: 'Apple TV 4K, Smart Home & Display', icon: Tv, color: 'bg-emerald-600', textColor: 'text-emerald-600', bgSoft: 'bg-emerald-50 border-emerald-200' },
+  ];
+
+  const handleDownloadCategoryExcel = async (categoryKey, categoryName) => {
+    setExportingCategory(categoryKey);
+    try {
+      const response = await exportProductsExcel(categoryKey);
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${categoryKey}_products.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setSuccess(`Excel sheet for ${categoryName} downloaded successfully!`);
+      setTimeout(() => setSuccess(null), 3500);
+    } catch (err) {
+      console.error('Download error:', err);
+      setError(err.response?.data?.message || err.message || 'Failed to export Excel sheet.');
+    } finally {
+      setExportingCategory(null);
+    }
+  };
+
+  const handleFileSelectForCategory = async (e, categoryKey, categoryName) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setSelectedExcelFile(file);
+    setSelectedCategoryForImport({ key: categoryKey, name: categoryName });
+    setLoadingExcelPreview(true);
+    setShowExcelPreviewModal(true);
+
+    try {
+      const preview = await previewImportProductsExcel(file, categoryKey);
+      setExcelPreviewData(preview);
+    } catch (err) {
+      console.error('Preview error:', err);
+      setError(err.response?.data?.message || err.message || 'Failed to parse Excel file preview.');
+      setShowExcelPreviewModal(false);
+    } finally {
+      setLoadingExcelPreview(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleConfirmExcelImport = async () => {
+    if (!selectedExcelFile || !selectedCategoryForImport) return;
+    setImportingExcel(true);
+    try {
+      const result = await importProductsExcel(selectedExcelFile, selectedCategoryForImport.key);
+      setSuccess(result.message || `Products uploaded successfully for ${selectedCategoryForImport.name}!`);
+      setShowExcelPreviewModal(false);
+      setShowExcelManagerModal(false);
+
+      notifyAdminChange();
+      await fetchData();
+
+      setTimeout(() => setSuccess(null), 4000);
+    } catch (err) {
+      console.error('Import error:', err);
+      setError(err.response?.data?.message || err.message || 'Failed to import Excel sheet.');
+    } finally {
+      setImportingExcel(false);
+    }
+  };
+
   const fetchStockLogs = async () => {
     setLoadingLogs(true);
     setShowStockLogsModal(true);
@@ -102,6 +197,7 @@ export default function Products() {
       setLoadingLogs(false);
     }
   };
+
 
   const handleToggleStock = async (prod) => {
     const targetStock = prod.stock === 0 ? 10 : 0;
@@ -172,6 +268,8 @@ export default function Products() {
     processors: [],
     material: [],
     features: [],
+    displayImage: '',
+    colorImages: {},
     images: [],
     variants: [],
     partNumber: '',
@@ -205,6 +303,38 @@ export default function Products() {
       setError(err.response?.data?.message || err.message || 'Failed to fetch catalog data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDisplayImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingImage(true);
+    const formData = new FormData();
+    formData.append('images', file);
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axiosClient.post('/upload/multiple', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const uploadedUrl = response.data[0]?.url;
+      if (uploadedUrl) {
+        setProductForm(prev => ({
+          ...prev,
+          displayImage: uploadedUrl,
+          images: prev.images.includes(uploadedUrl) ? prev.images : [uploadedUrl, ...prev.images]
+        }));
+        showSuccessMessage('Display Image uploaded successfully!');
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || 'Display Image upload failed');
+    } finally {
+      setUploadingImage(false);
     }
   };
 
@@ -368,6 +498,66 @@ export default function Products() {
     showSuccessMessage(`Generated ${countAdded} (Color + Storage + RAM) Combination Variant Blocks! Scroll down to enter individual MPNs & Prices.`);
   };
 
+  const handleAutoGenerateWatchVariants = () => {
+    const currentColors = (productForm.colors || []).map(c => typeof c === 'object' ? c.name : c).filter(Boolean);
+    const currentSizes = (productForm.sizes || []).filter(Boolean);
+    const currentBandSizes = (productForm.bandSizes || []).filter(Boolean);
+    const currentConnectivities = (productForm.connectivities || []).filter(Boolean);
+
+    if (currentColors.length === 0 && currentSizes.length === 0 && currentBandSizes.length === 0 && currentConnectivities.length === 0) {
+      setError("Please enter Colors, Case Sizes (42mm/46mm), Band Sizes (S, M, L, S/M, M/L, Loop), or Connectivity (GPS, GPS + Cellular) first!");
+      return;
+    }
+
+    const colorList = currentColors.length > 0 ? currentColors : [''];
+    const sizeList = currentSizes.length > 0 ? currentSizes : [''];
+    const bandList = currentBandSizes.length > 0 ? currentBandSizes : [''];
+    const connList = currentConnectivities.length > 0 ? currentConnectivities : [''];
+
+    const newVariants = [...(productForm.variants || [])];
+    let countAdded = 0;
+
+    colorList.forEach(cName => {
+      sizeList.forEach(sName => {
+        bandList.forEach(bName => {
+          connList.forEach(connName => {
+            const exists = newVariants.find(v => 
+              (v.color || '').toString().toLowerCase() === (cName || '').toLowerCase() &&
+              (v.size || '').toString().toLowerCase() === (sName || '').toLowerCase() &&
+              (v.bandSize || '').toString().toLowerCase() === (bName || '').toLowerCase() &&
+              (v.connectivity || '').toString().toLowerCase() === (connName || '').toLowerCase()
+            );
+
+            if (!exists) {
+              newVariants.push({
+                color: cName,
+                size: sName,
+                bandSize: bName,
+                connectivity: connName,
+                displayTitle: connName,
+                title: connName,
+                price: productForm.price || '',
+                discountPrice: productForm.discountPrice || '',
+                stock: productForm.stock || 10,
+                partNumber: '',
+                sku: `MPN-${cName ? cName.slice(0,2).toUpperCase() : 'XX'}-${sName ? sName.replace(/[^0-9]/g, '') : '0'}-${connName ? (connName.includes('Cellular') ? 'CELL' : 'GPS') : 'STD'}-${Date.now().toString().slice(-3)}`,
+                images: []
+              });
+              countAdded++;
+            }
+          });
+        });
+      });
+    });
+
+    setProductForm({
+      ...productForm,
+      variants: newVariants
+    });
+    showSuccessMessage(`Generated ${countAdded} (Color + Case Size + Band Size + Connectivity) Watch Variant Blocks! Scroll down to enter Part Numbers & Prices.`);
+  };
+
+
   const handleProductSubmit = async (e) => {
     if (e) e.preventDefault();
     if (!productForm.category) {
@@ -394,6 +584,10 @@ export default function Products() {
 
     const variantColors = [];
     const variantSizes = [];
+    const variantAccessoriesSizes = [];
+    const variantBandSizes = [];
+    const variantConnectivities = [];
+    const variantGlasses = [];
     const variantStorage = [];
     const variantRam = [];
     const variantProcessors = [];
@@ -404,6 +598,18 @@ export default function Products() {
       }
       if (v.size && !variantSizes.includes(v.size)) {
         variantSizes.push(v.size);
+      }
+      if (v.accessoriesSize && v.accessoriesSize !== 'None' && !variantAccessoriesSizes.includes(v.accessoriesSize)) {
+        variantAccessoriesSizes.push(v.accessoriesSize);
+      }
+      if (v.bandSize && !variantBandSizes.includes(v.bandSize)) {
+        variantBandSizes.push(v.bandSize);
+      }
+      if (v.connectivity && !variantConnectivities.includes(v.connectivity)) {
+        variantConnectivities.push(v.connectivity);
+      }
+      if (v.glass && !variantGlasses.includes(v.glass)) {
+        variantGlasses.push(v.glass);
       }
       if (v.storage && !variantStorage.includes(v.storage)) {
         variantStorage.push(v.storage);
@@ -430,6 +636,21 @@ export default function Products() {
       if (!finalSizes.includes(vs)) finalSizes.push(vs);
     });
 
+    const finalBandSizes = [...(productForm.bandSizes || [])];
+    variantBandSizes.forEach(vb => {
+      if (!finalBandSizes.includes(vb)) finalBandSizes.push(vb);
+    });
+
+    const finalConnectivities = [...(productForm.connectivities || [])];
+    variantConnectivities.forEach(vc => {
+      if (!finalConnectivities.includes(vc)) finalConnectivities.push(vc);
+    });
+
+    const finalGlasses = [...(productForm.glasses || [])];
+    variantGlasses.forEach(vg => {
+      if (!finalGlasses.includes(vg)) finalGlasses.push(vg);
+    });
+
     const finalStorage = [...(productForm.storage || [])];
     variantStorage.forEach(vt => {
       if (!finalStorage.includes(vt)) finalStorage.push(vt);
@@ -445,28 +666,74 @@ export default function Products() {
       if (!finalProcessors.includes(vp)) finalProcessors.push(vp);
     });
 
-    const finalVariantsWithPrice = finalVariants.map(v => ({
-      ...v,
-      price: Number(v.price || productForm.price || 0),
-      discountPrice: v.discountPrice ? Number(v.discountPrice) : (productForm.discountPrice ? Number(productForm.discountPrice) : 0),
-      stock: Number(v.stock || 0)
-    }));
+    const inputDisc = Number(productForm.discountPrice || 0);
+    let calcPercent = 0;
+    if (inputDisc > 0 && inputDisc <= 99) {
+      calcPercent = Math.round(inputDisc);
+    } else if (inputDisc > 99 && Number(productForm.price) > inputDisc) {
+      calcPercent = Math.round(((Number(productForm.price) - inputDisc) / Number(productForm.price)) * 100);
+    }
+
+    const finalVariantsWithPrice = finalVariants.map(v => {
+      const vPrice = Number(v.price || productForm.price || 0);
+      const rawDiscInput = (v.discountInput !== undefined && v.discountInput !== null && v.discountInput !== "") 
+        ? v.discountInput 
+        : (v.discountPercent !== undefined && v.discountPercent !== null ? v.discountPercent : inputDisc);
+      const vDiscRaw = rawDiscInput !== "" && rawDiscInput !== undefined && rawDiscInput !== null ? Number(rawDiscInput) : 0;
+      let vDiscPrice = vPrice;
+      let vDiscPercent = 0;
+
+      if (vDiscRaw > 0 && vDiscRaw <= 99) {
+        vDiscPercent = Math.round(vDiscRaw);
+        vDiscPrice = vPrice > 0 ? Math.round(vPrice - (vPrice * vDiscRaw / 100)) : vDiscRaw;
+      } else if (vDiscRaw > 99 && vPrice > vDiscRaw) {
+        if (vDiscRaw < (vPrice / 2)) {
+          vDiscPrice = vPrice - vDiscRaw;
+          vDiscPercent = Math.round((vDiscRaw / vPrice) * 100);
+        } else {
+          vDiscPrice = vDiscRaw;
+          vDiscPercent = Math.round(((vPrice - vDiscRaw) / vPrice) * 100);
+        }
+      } else {
+        vDiscPercent = 0;
+        vDiscPrice = vPrice;
+      }
+
+      return {
+        ...v,
+        price: vPrice,
+        discountPrice: vDiscPrice,
+        discountPercent: vDiscPercent,
+        discountInput: vDiscRaw,
+        stock: Number(v.stock || 0)
+      };
+    });
 
     const formattedProduct = {
       ...productForm,
       price: Number(productForm.price || finalVariantsWithPrice[0]?.price || 0),
-      discountPrice: Number(productForm.discountPrice || finalVariantsWithPrice[0]?.discountPrice || 0),
+      discountPrice: Number(finalVariantsWithPrice[0]?.discountPrice || productForm.discountPrice || 0),
+      discountPercent: calcPercent || finalVariantsWithPrice[0]?.discountPercent || 0,
       stock: finalVariantsWithPrice.reduce((acc, v) => acc + Number(v.stock || 0), 0),
       sizes: finalSizes,
+      accessoriesSizes: variantAccessoriesSizes,
+      bandSizes: finalBandSizes,
+      connectivities: finalConnectivities,
+      glasses: finalGlasses,
       colors: finalColors,
       storage: finalStorage,
       ram: finalRam,
       processors: finalProcessors,
-      variants: finalVariantsWithPrice
+      variants: finalVariantsWithPrice,
+      displayImage: productForm.displayImage || '',
+      colorImages: productForm.colorImages || {}
     };
 
     // Auto-populate top-level images from all variant images
     const allImages = [];
+    if (productForm.displayImage && !allImages.includes(productForm.displayImage)) {
+      allImages.push(productForm.displayImage);
+    }
     if (productForm.images && productForm.images.length > 0) {
       productForm.images.forEach(img => {
         if (!allImages.includes(img)) allImages.push(img);
@@ -482,7 +749,7 @@ export default function Products() {
     formattedProduct.images = allImages;
 
     if (formattedProduct.images.length === 0) {
-      setError('Please upload at least one product image or variant image');
+      setError('Please upload at least one product image, display image, or variant image');
       setLoading(false);
       return;
     }
@@ -509,27 +776,42 @@ export default function Products() {
   const handleProductEditClick = (prod) => {
     setEditProductId(prod._id);
 
-    let prodVariants = prod.variants || [];
-    if (prodVariants.length === 0 && (prod.price || prod.stock)) {
-      prodVariants = [{
-        color: prod.colors && prod.colors[0] ? (prod.colors[0].name || prod.colors[0]) : '',
-        price: prod.price,
-        discountPrice: prod.discountPrice || 0,
-        stock: prod.stock,
-        sku: `${prod.brand ? prod.brand.slice(0, 3).toUpperCase() : 'PRO'}-${Date.now().toString().slice(-4)}`,
-        images: prod.images || []
-      }];
-    }
+    const prodVariants = Array.isArray(prod.variants) ? prod.variants : [];
+
+    const mappedVariants = prodVariants.map(v => {
+      let discVal = (v.discountInput !== undefined && v.discountInput !== null && v.discountInput !== '')
+        ? v.discountInput
+        : (v.discountPercent !== undefined && v.discountPercent !== null ? v.discountPercent : '');
+
+      if (discVal === '' || discVal === undefined) {
+        if (v.discountPrice !== undefined && v.discountPrice !== null && Number(v.discountPrice) > 0 && v.price && Number(v.price) > Number(v.discountPrice)) {
+          const pct = Math.round(((Number(v.price) - Number(v.discountPrice)) / Number(v.price)) * 100);
+          discVal = pct;
+        }
+      }
+
+      return {
+        ...v,
+        discountInput: discVal !== undefined && discVal !== null ? discVal : 0,
+        discountPrice: v.discountPrice || v.price || ''
+      };
+    });
 
     setProductForm({
       title: prod.title || '',
       description: prod.description || '',
       price: prod.price || '',
-      discountPrice: prod.discountPrice || 0,
+      discountPrice: prod.discountPercent || prod.discountPrice || 0,
       stock: prod.stock || '',
       brand: prod.brand || 'Apple',
       category: prod.category?._id || prod.category || '',
       sizes: Array.isArray(prod.sizes) ? prod.sizes : (prod.sizes ? [prod.sizes] : []),
+      bandSizes: (Array.isArray(prod.bandSizes) && prod.bandSizes.length > 0)
+        ? prod.bandSizes
+        : Array.from(new Set(prodVariants.map(v => v.bandSize).filter(Boolean))),
+      connectivities: (Array.isArray(prod.connectivities) && prod.connectivities.length > 0)
+        ? prod.connectivities
+        : Array.from(new Set(prodVariants.map(v => v.connectivity).filter(Boolean))),
       colors: Array.isArray(prod.colors) ? prod.colors : (prod.colors ? [prod.colors] : []),
       storage: Array.isArray(prod.storage) ? prod.storage : (prod.storage ? [prod.storage] : []),
       ram: Array.isArray(prod.ram) ? prod.ram : (prod.ram ? [prod.ram] : []),
@@ -537,8 +819,10 @@ export default function Products() {
       processors: Array.isArray(prod.processors) ? prod.processors : (prod.processor ? [prod.processor] : []),
       material: prod.material || [],
       features: prod.features || [],
+      displayImage: prod.displayImage || '',
+      colorImages: prod.colorImages || {},
       images: prod.images || [],
-      variants: prodVariants,
+      variants: mappedVariants,
       partNumber: prod.partNumber || '',
       modelNumber: prod.modelNumber || '',
       seoTitle: prod.seoTitle || '',
@@ -590,6 +874,8 @@ export default function Products() {
       glasses: [],
       material: [],
       features: [],
+      displayImage: '',
+      colorImages: {},
       images: [],
       variants: [],
       partNumber: '',
@@ -655,10 +941,15 @@ export default function Products() {
 
   const getPreviewImages = () => {
     // Collect all images matching selected color variant or fallback
-    if (productForm.variants && productForm.variants.length > 0) {
+    if (selectedPreviewColor && productForm.variants && productForm.variants.length > 0) {
       const match = productForm.variants.find(v => v.color === selectedPreviewColor);
       if (match && match.images && match.images.length > 0) return match.images;
-
+    }
+    if (productForm.displayImage) {
+      const restImages = (productForm.images || []).filter(img => img !== productForm.displayImage);
+      return [productForm.displayImage, ...restImages];
+    }
+    if (productForm.variants && productForm.variants.length > 0) {
       const anyVarWithImg = productForm.variants.find(v => v.images && v.images.length > 0);
       if (anyVarWithImg) return anyVarWithImg.images;
     }
@@ -674,7 +965,7 @@ export default function Products() {
     } else {
       setActivePreviewMainImage('/iphone_category_v2.jpg');
     }
-  }, [selectedPreviewColor, productForm.variants, productForm.images]);
+  }, [selectedPreviewColor, productForm.variants, productForm.images, productForm.displayImage]);
 
   return (
     <div className="w-full text-left font-sans">
@@ -710,10 +1001,17 @@ export default function Products() {
             <div className="flex gap-2.5">
               <button
                 onClick={fetchStockLogs}
-                className="flex items-center gap-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 px-4.5 py-3 rounded-2xl text-xs font-bold transition-all cursor-pointer border border-zinc-250"
+                className="flex items-center gap-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 px-4 py-3 rounded-2xl text-xs font-bold transition-all cursor-pointer border border-zinc-250"
               >
                 <History className="h-4 w-4 text-zinc-500" />
                 STOCK LOGS
+              </button>
+              <button
+                onClick={() => setShowExcelManagerModal(true)}
+                className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-3 rounded-2xl text-xs font-bold transition-all cursor-pointer border-0 shadow-sm"
+              >
+                <FileSpreadsheet className="h-4 w-4 text-emerald-300" />
+                EXCEL SHEETS
               </button>
               <button
                 onClick={() => setShowProductForm(true)}
@@ -724,6 +1022,74 @@ export default function Products() {
               </button>
             </div>
           </header>
+
+          {/* Category Excel Sheet Quick Manager Grid */}
+          <div className="mb-8 bg-gradient-to-br from-zinc-900 to-zinc-950 rounded-3xl p-6 text-white shadow-lg border border-zinc-800">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-5 border-b border-zinc-800 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <FileSpreadsheet className="h-5 w-5 text-emerald-400" />
+                  <h2 className="text-base font-bold font-sans tracking-wide">Category Excel Sheets (Download & Upload)</h2>
+                </div>
+                <p className="text-xs text-zinc-400 mt-1">Download pre-formatted product sheets per category, update prices/variants in Excel, and upload back to live sync.</p>
+              </div>
+              <span className="text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 px-3 py-1 rounded-full border border-emerald-500/20">
+                7 Categories Excel Support
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+              {CATEGORY_EXCEL_ITEMS.map((cat) => {
+                const IconComp = cat.icon;
+                const isExporting = exportingCategory === cat.key;
+                
+                return (
+                  <div key={cat.key} className="bg-zinc-900/90 border border-zinc-800 hover:border-zinc-700 rounded-2xl p-4 flex flex-col justify-between transition-all group">
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2.5">
+                          <div className={`p-2 rounded-xl ${cat.color} text-white shrink-0`}>
+                            <IconComp className="h-4 w-4" />
+                          </div>
+                          <span className="font-bold text-sm text-white font-sans">{cat.name}</span>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-zinc-400 line-clamp-1 mb-3.5">{cat.subtitle}</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-800/80">
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadCategoryExcel(cat.key, cat.name)}
+                        disabled={isExporting}
+                        className="flex items-center justify-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 py-2 px-2.5 rounded-xl text-[11px] font-semibold transition-colors cursor-pointer border border-zinc-700/60 disabled:opacity-50"
+                        title={`Download ${cat.name} Excel Sheet`}
+                      >
+                        {isExporting ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-400" />
+                        ) : (
+                          <Download className="h-3.5 w-3.5 text-emerald-400" />
+                        )}
+                        <span>Download</span>
+                      </button>
+
+                      <label className="flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white py-2 px-2.5 rounded-xl text-[11px] font-semibold transition-colors cursor-pointer border-0 text-center">
+                        <Upload className="h-3.5 w-3.5" />
+                        <span>Upload</span>
+                        <input
+                          type="file"
+                          accept=".xlsx, .xls, .csv"
+                          className="hidden"
+                          onChange={(e) => handleFileSelectForCategory(e, cat.key, cat.name)}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
 
           {/* Search Input Bar */}
           <div className="mb-6 relative max-w-md">
@@ -770,12 +1136,17 @@ export default function Products() {
                     {filteredProducts.map((prod) => (
                       <tr key={prod._id} className="hover:bg-zinc-50/50 transition-colors">
                         <td className="py-4 px-6 flex items-center gap-3">
-                          <div className="h-12 w-12 rounded-xl bg-white border border-zinc-150 p-1 flex items-center justify-center overflow-hidden shrink-0">
+                          <div className="h-12 w-12 rounded-xl bg-white border border-zinc-150 p-1 flex items-center justify-center overflow-hidden shrink-0 relative">
                             <img
-                              src={prod.images?.[0] || '/iphone_category_v2.jpg'}
+                              src={prod.displayImage || prod.images?.[0] || '/iphone_category_v2.jpg'}
                               alt=""
                               className="w-full h-full object-contain"
                             />
+                            {prod.displayImage && (
+                              <span className="absolute bottom-0.5 right-0.5 bg-[#0071e3] text-white text-[9px] font-bold px-1 py-0 rounded" title="Display Image Active">
+                                ★
+                              </span>
+                            )}
                           </div>
                           <div>
                             <span className="font-semibold text-zinc-900 block font-sans text-sm">
@@ -1109,10 +1480,93 @@ export default function Products() {
                   </div>
                 </div>
 
+                {/* Primary Display Image (Card Cover Image) */}
+                <div className="border-t border-zinc-150 pt-4 space-y-3">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className="block text-[10px] font-extrabold text-[#0071e3] uppercase tracking-wider">
+                        🖼️ Primary Display Image (Hero Card Cover Image)
+                      </label>
+                      {productForm.displayImage && (
+                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                          Display Image Active
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-zinc-500 mt-0.5">
+                      This image is shown on store product cards (Mac, iPhone, iPad, Watch, AirPods) as default cover before a color swatch is clicked.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 bg-blue-50/50 p-3.5 rounded-xl border border-blue-100">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      id="display-image-upload"
+                      onChange={handleDisplayImageUpload}
+                      className="hidden"
+                    />
+
+                    {/* Current Display Image Preview */}
+                    {productForm.displayImage ? (
+                      <div className="relative h-24 w-24 rounded-xl border border-blue-200 bg-white overflow-hidden p-1 flex items-center justify-center shrink-0 shadow-sm">
+                        <img src={productForm.displayImage} alt="Display Image" className="w-full h-full object-contain" />
+                        <button
+                          type="button"
+                          onClick={() => setProductForm(prev => ({ ...prev, displayImage: '' }))}
+                          className="absolute top-1 right-1 h-5 w-5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] rounded-full flex items-center justify-center cursor-pointer border-0 shadow-sm"
+                          title="Remove Display Image"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="h-24 w-24 rounded-xl border-2 border-dashed border-blue-200 bg-white flex flex-col items-center justify-center text-center p-2 text-zinc-400 shrink-0">
+                        <Package className="h-6 w-6 mb-1 text-blue-400" />
+                        <span className="text-[9px] font-bold text-zinc-400 uppercase">No Image</span>
+                      </div>
+                    )}
+
+                    {/* Controls & URL input */}
+                    <div className="flex-1 space-y-2.5 w-full">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          disabled={uploadingImage}
+                          onClick={() => document.getElementById('display-image-upload').click()}
+                          className="px-3.5 py-2 bg-[#0071e3] hover:bg-blue-600 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer border-0 shadow-xs transition-all"
+                        >
+                          {uploadingImage ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                          Upload Display Image
+                        </button>
+                        {productForm.images && productForm.images.length > 0 && !productForm.displayImage && (
+                          <button
+                            type="button"
+                            onClick={() => setProductForm(prev => ({ ...prev, displayImage: prev.images[0] }))}
+                            className="px-3 py-2 bg-white hover:bg-zinc-50 border border-zinc-200 text-zinc-700 font-bold rounded-xl text-xs cursor-pointer shadow-xs"
+                          >
+                            Set First Product Image
+                          </button>
+                        )}
+                      </div>
+
+                      <div>
+                        <input
+                          type="text"
+                          placeholder="Or paste Display Image URL (e.g. /mac_nav/macbook_air_m3.png or https://...)"
+                          value={productForm.displayImage || ''}
+                          onChange={(e) => setProductForm({ ...productForm, displayImage: e.target.value })}
+                          className="w-full px-3 py-2 rounded-lg border border-zinc-200 text-xs outline-none bg-white font-mono focus:border-[#0071e3]"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 {/* General Product Image Upload (Used if no variants exist) */}
                 <div className="border-t border-zinc-150 pt-4">
                   <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-2">
-                    Base Product Images (For non-variant items)
+                    Base Product Gallery Images
                   </label>
                   <div className="flex flex-wrap items-center gap-3">
                     <input
@@ -1124,23 +1578,40 @@ export default function Products() {
                       className="hidden"
                     />
 
-                    {productForm.images && productForm.images.map((imgUrl, imgIdx) => (
-                      <div key={imgIdx} className="relative h-16 w-16 rounded-xl border border-zinc-200 bg-white overflow-hidden p-1 flex items-center justify-center shrink-0 shadow-sm">
-                        <img src={imgUrl} alt="" className="w-full h-full object-contain" />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setProductForm(prev => ({
-                              ...prev,
-                              images: prev.images.filter((_, i) => i !== imgIdx)
-                            }));
-                          }}
-                          className="absolute top-1 right-1 h-5 w-5 bg-black/60 hover:bg-black text-white font-bold text-[10px] rounded-full flex items-center justify-center cursor-pointer border-0 shadow-sm"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ))}
+                    {productForm.images && productForm.images.map((imgUrl, imgIdx) => {
+                      const isDisplay = productForm.displayImage === imgUrl;
+                      return (
+                        <div key={imgIdx} className={`relative h-16 w-16 rounded-xl border ${isDisplay ? 'border-2 border-[#0071e3] ring-2 ring-blue-100' : 'border-zinc-200'} bg-white overflow-hidden p-1 flex items-center justify-center shrink-0 shadow-sm group`}>
+                          <img src={imgUrl} alt="" className="w-full h-full object-contain" />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setProductForm(prev => ({
+                                ...prev,
+                                displayImage: isDisplay ? '' : imgUrl
+                              }));
+                            }}
+                            className={`absolute bottom-1 left-1 h-5 w-5 ${isDisplay ? 'bg-[#0071e3] text-white' : 'bg-black/40 hover:bg-black text-white'} font-bold text-[10px] rounded-full flex items-center justify-center cursor-pointer border-0 shadow-sm`}
+                            title={isDisplay ? "Current Display Image" : "Set as Display Image"}
+                          >
+                            ★
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setProductForm(prev => ({
+                                ...prev,
+                                images: prev.images.filter((_, i) => i !== imgIdx),
+                                displayImage: prev.displayImage === imgUrl ? '' : prev.displayImage
+                              }));
+                            }}
+                            className="absolute top-1 right-1 h-5 w-5 bg-black/60 hover:bg-black text-white font-bold text-[10px] rounded-full flex items-center justify-center cursor-pointer border-0 shadow-sm"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      );
+                    })}
 
                     <button
                       type="button"
@@ -1158,189 +1629,293 @@ export default function Products() {
                   </div>
                 </div>
 
-                {/* Base price & stock input if no variants */}
-                {(!productForm.variants || productForm.variants.length === 0) && (
-                  <div className="grid grid-cols-3 gap-4 border-t border-zinc-150 pt-4">
-                    <div>
-                      <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-2">
-                        Price (₹) *
-                      </label>
-                      <input
-                        type="number"
-                        placeholder="119900"
-                        value={productForm.price}
-                        onChange={(e) => setProductForm({ ...productForm, price: e.target.value })}
-                        className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 outline-none text-xs"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-2">
-                        Discount Price (₹)
-                      </label>
-                      <input
-                        type="number"
-                        placeholder="109900"
-                        value={productForm.discountPrice || ''}
-                        onChange={(e) => setProductForm({ ...productForm, discountPrice: e.target.value })}
-                        className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 outline-none text-xs"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-2">
-                        Stock *
-                      </label>
-                      <input
-                        type="number"
-                        placeholder="10"
-                        value={productForm.stock}
-                        onChange={(e) => setProductForm({ ...productForm, stock: e.target.value })}
-                        className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 outline-none text-xs"
-                      />
-                    </div>
+                {/* Base price & stock input */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-zinc-150 pt-4">
+                  <div>
+                    <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-2">
+                      Base Price / MRP (₹) *
+                    </label>
+                    <input
+                      type="number"
+                      placeholder="e.g. 79900"
+                      value={productForm.price}
+                      onChange={(e) => setProductForm({ ...productForm, price: e.target.value })}
+                      className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 outline-none text-xs font-bold text-zinc-900"
+                    />
                   </div>
-                )}
+                  <div>
+                    <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-2">
+                      Default Stock *
+                    </label>
+                    <input
+                      type="number"
+                      placeholder="10"
+                      value={productForm.stock}
+                      onChange={(e) => setProductForm({ ...productForm, stock: e.target.value })}
+                      className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 outline-none text-xs font-medium"
+                    />
+                  </div>
+                </div>
 
                 {/* Spec Option Config tags */}
-                <div className="border-t border-zinc-150 pt-4 space-y-4">
-                  <VariantTagInput
-                    label="Sizes Config Options"
-                    placeholder="e.g. 14-inch, 16-inch"
-                    tags={productForm.sizes || []}
-                    onChange={(tags) => {
-                      const removed = (productForm.sizes || []).filter(t => !tags.includes(t));
-                      let updatedVariants = [...(productForm.variants || [])];
-                      if (removed.length > 0) {
-                        updatedVariants = updatedVariants.map(v => {
-                          if (removed.includes(v.size)) {
-                            return { ...v, size: '' };
-                          }
-                          return v;
-                        });
-                      }
-                      setProductForm({ ...productForm, sizes: tags, variants: updatedVariants });
-                    }}
-                  />
+                {(() => {
+                  const selectedCatObj = categories.find(c => c._id === productForm.category || c.slug === productForm.category || c.name === productForm.category);
+                  const selectedCatSlug = (selectedCatObj?.slug || selectedCatObj?.name || productForm.category || '').toString().toLowerCase();
+                  const isWatchCategory = selectedCatSlug.includes('watch') || selectedCatSlug.includes('wearable');
 
-                  <VariantTagInput
-                    label="Colors Config Options"
-                    placeholder="e.g. Silver, Space Gray"
-                    tags={(productForm.colors || []).map(c => typeof c === 'object' ? c.name : c)}
-                    onChange={(tags) => {
-                      const removed = (productForm.colors || []).map(c => typeof c === 'object' ? c.name : c).filter(t => !tags.includes(t));
-                      let updatedVariants = [...(productForm.variants || [])];
-                      if (removed.length > 0) {
-                        updatedVariants = updatedVariants.map(v => {
-                          if (removed.includes(v.color)) {
-                            return { ...v, color: '' };
+                  return (
+                    <div className="border-t border-zinc-150 pt-4 space-y-4">
+                      {/* Case Size Options */}
+                      <VariantTagInput
+                        label={isWatchCategory ? "Case Size Options (Watch)" : "Sizes Config Options"}
+                        placeholder={isWatchCategory ? "e.g. 42mm, 46mm, 49mm" : "e.g. 14-inch, 16-inch"}
+                        tags={productForm.sizes || []}
+                        onChange={(tags) => {
+                          const removed = (productForm.sizes || []).filter(t => !tags.includes(t));
+                          let updatedVariants = [...(productForm.variants || [])];
+                          if (removed.length > 0) {
+                            updatedVariants = updatedVariants.map(v => {
+                              if (removed.includes(v.size)) {
+                                return { ...v, size: '' };
+                              }
+                              return v;
+                            });
                           }
-                          return v;
-                        });
-                      }
-                      setProductForm({
-                        ...productForm,
-                        colors: tags.map(t => {
-                          const existing = (productForm.colors || []).find(c => (c?.name || c) === t);
-                          return existing || { name: t, value: t, images: [] };
-                        }),
-                        variants: updatedVariants
-                      });
-                    }}
-                  />
-                  <div className="flex flex-wrap gap-2 mt-1.5">
-                    <button
-                      type="button"
-                      onClick={handleAutoGenerateColorVariants}
-                      className="text-xs font-bold text-[#0071e3] hover:text-blue-700 bg-blue-50 border border-blue-200 px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      Generate Color-only MPN Fields
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleAutoGenerateFullMatrixVariants}
-                      className="text-xs font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 border border-emerald-200 px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      Generate All (Color + Storage + RAM) Combination MPN & Price Fields
-                    </button>
-                  </div>
+                          setProductForm({ ...productForm, sizes: tags, variants: updatedVariants });
+                        }}
+                      />
 
-                  <VariantTagInput
-                    label="Storage Options"
-                    placeholder="e.g. 256GB SSD, 512GB SSD, 1TB SSD"
-                    tags={productForm.storage || []}
-                    onChange={(tags) => {
-                      const removed = (productForm.storage || []).filter(t => !tags.includes(t));
-                      let updatedVariants = [...(productForm.variants || [])];
-                      if (removed.length > 0) {
-                        updatedVariants = updatedVariants.map(v => {
-                          if (removed.includes(v.storage)) {
-                            return { ...v, storage: '' };
-                          }
-                          return v;
-                        });
-                      }
-                      setProductForm({ ...productForm, storage: tags, variants: updatedVariants });
-                    }}
-                  />
+                      {/* Band Size Options (Watch only) */}
+                      {isWatchCategory && (
+                        <>
+                          <div>
+                            <VariantTagInput
+                              label="Band Size Options (Watch)"
+                              placeholder="e.g. S/M, M/L, Loop"
+                              tags={productForm.bandSizes || []}
+                              onChange={(tags) => {
+                                const removed = (productForm.bandSizes || []).filter(t => !tags.includes(t));
+                                let updatedVariants = [...(productForm.variants || [])];
+                                if (removed.length > 0) {
+                                  updatedVariants = updatedVariants.map(v => {
+                                    if (removed.includes(v.bandSize)) {
+                                      return { ...v, bandSize: '' };
+                                    }
+                                    return v;
+                                  });
+                                }
+                                setProductForm({ ...productForm, bandSizes: tags, variants: updatedVariants });
+                              }}
+                            />
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                              <span className="text-[10px] text-zinc-400 font-semibold self-center">Quick add:</span>
+                              {['S', 'M', 'L', 'S/M', 'M/L', 'Loop', 'Solo Loop', 'Sport Loop', 'Alpine Loop', 'Trail Loop', 'Ocean Band'].map(preset => (
+                                <button
+                                  key={preset}
+                                  type="button"
+                                  onClick={() => {
+                                    const current = productForm.bandSizes || [];
+                                    if (!current.includes(preset)) {
+                                      setProductForm({ ...productForm, bandSizes: [...current, preset] });
+                                    }
+                                  }}
+                                  className={`text-[11px] px-2.5 py-1 rounded-lg border font-semibold transition-all cursor-pointer ${
+                                    (productForm.bandSizes || []).includes(preset)
+                                      ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                      : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-zinc-100 hover:border-zinc-300'
+                                  }`}
+                                >
+                                  + {preset}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
 
-                  <VariantTagInput
-                    label="RAM Options"
-                    placeholder="e.g. 8GB, 16GB, 24GB, 32GB"
-                    tags={productForm.ram || []}
-                    onChange={(tags) => {
-                      const removed = (productForm.ram || []).filter(t => !tags.includes(t));
-                      let updatedVariants = [...(productForm.variants || [])];
-                      if (removed.length > 0) {
-                        updatedVariants = updatedVariants.map(v => {
-                          if (removed.includes(v.ram)) {
-                            return { ...v, ram: '' };
-                          }
-                          return v;
-                        });
-                      }
-                      setProductForm({ ...productForm, ram: tags, variants: updatedVariants });
-                    }}
-                  />
+                          <div>
+                            <VariantTagInput
+                              label="Connectivity Options (Watch)"
+                              placeholder="e.g. GPS, GPS + Cellular"
+                              tags={productForm.connectivities || []}
+                              onChange={(tags) => {
+                                const removed = (productForm.connectivities || []).filter(t => !tags.includes(t));
+                                let updatedVariants = [...(productForm.variants || [])];
+                                if (removed.length > 0) {
+                                  updatedVariants = updatedVariants.map(v => {
+                                    if (removed.includes(v.connectivity)) {
+                                      return { ...v, connectivity: '', displayTitle: '', title: '' };
+                                    }
+                                    return v;
+                                  });
+                                }
+                                setProductForm({ ...productForm, connectivities: tags, variants: updatedVariants });
+                              }}
+                            />
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                              <span className="text-[10px] text-zinc-400 font-semibold self-center">Quick add:</span>
+                              {['GPS', 'GPS + Cellular'].map(preset => (
+                                <button
+                                  key={preset}
+                                  type="button"
+                                  onClick={() => {
+                                    const current = productForm.connectivities || [];
+                                    if (!current.includes(preset)) {
+                                      setProductForm({ ...productForm, connectivities: [...current, preset] });
+                                    }
+                                  }}
+                                  className={`text-[11px] px-2.5 py-1 rounded-lg border font-semibold transition-all cursor-pointer ${
+                                    (productForm.connectivities || []).includes(preset)
+                                      ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                      : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-zinc-100 hover:border-zinc-300'
+                                  }`}
+                                >
+                                  + {preset}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </>
+                      )}
 
-                  <VariantTagInput
-                    label="Chip & Processor Options (Laptops & PCs / Mac)"
-                    placeholder="e.g. Apple M4 chip with 8‑core CPU and 8‑core GPU, Apple M4 chip with 10-core CPU and 10-core GPU"
-                    tags={productForm.processors || []}
-                    onChange={(tags) => {
-                      const removed = (productForm.processors || []).filter(t => !tags.includes(t));
-                      let updatedVariants = [...(productForm.variants || [])];
-                      if (removed.length > 0) {
-                        updatedVariants = updatedVariants.map(v => {
-                          if (removed.includes(v.processor)) {
-                            return { ...v, processor: '' };
+                      {/* Colors Config Options */}
+                      <VariantTagInput
+                        label="Colors Config Options"
+                        placeholder="e.g. Space Grey, Black, Light Gold, Dark Bronze"
+                        tags={(productForm.colors || []).map(c => typeof c === 'object' ? c.name : c)}
+                        onChange={(tags) => {
+                          const removed = (productForm.colors || []).map(c => typeof c === 'object' ? c.name : c).filter(t => !tags.includes(t));
+                          let updatedVariants = [...(productForm.variants || [])];
+                          if (removed.length > 0) {
+                            updatedVariants = updatedVariants.map(v => {
+                              if (removed.includes(v.color)) {
+                                return { ...v, color: '' };
+                              }
+                              return v;
+                            });
                           }
-                          return v;
-                        });
-                      }
-                      setProductForm({ ...productForm, processors: tags, variants: updatedVariants });
-                    }}
-                  />
+                          setProductForm({
+                            ...productForm,
+                            colors: tags.map(t => {
+                              const existing = (productForm.colors || []).find(c => (c?.name || c) === t);
+                              return existing || { name: t, value: t, images: [] };
+                            }),
+                            variants: updatedVariants
+                          });
+                        }}
+                      />
 
-                  <VariantTagInput
-                    label="Glass Finish Config Options"
-                    placeholder="e.g. Standard glass, Nano-texture glass"
-                    tags={productForm.glasses || []}
-                    onChange={(tags) => {
-                      const removed = (productForm.glasses || []).filter(t => !tags.includes(t));
-                      let updatedVariants = [...(productForm.variants || [])];
-                      if (removed.length > 0) {
-                        updatedVariants = updatedVariants.map(v => {
-                          if (removed.includes(v.glass)) {
-                            return { ...v, glass: '' };
-                          }
-                          return v;
-                        });
-                      }
-                      setProductForm({ ...productForm, glasses: tags, variants: updatedVariants });
-                    }}
-                  />
-                </div>
+                      <div className="flex flex-wrap gap-2 mt-1.5">
+                        <button
+                          type="button"
+                          onClick={handleAutoGenerateColorVariants}
+                          className="text-xs font-bold text-[#0071e3] hover:text-blue-700 bg-blue-50 border border-blue-200 px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Generate Color-only MPN Fields
+                        </button>
+                        {isWatchCategory ? (
+                          <button
+                            type="button"
+                            onClick={handleAutoGenerateWatchVariants}
+                            className="text-xs font-bold text-rose-700 hover:text-rose-800 bg-rose-50 border border-rose-200 px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            Generate Watch Variants (Color + Case Size + Band Size + Connectivity)
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={handleAutoGenerateFullMatrixVariants}
+                            className="text-xs font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 border border-emerald-200 px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            Generate All (Color + Storage + RAM) Combination MPN & Price Fields
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Non-Watch fields (Storage, RAM, Processor, Glass finish) */}
+                      {!isWatchCategory && (
+                        <>
+                          <VariantTagInput
+                            label="Storage Options"
+                            placeholder="e.g. 256GB SSD, 512GB SSD, 1TB SSD"
+                            tags={productForm.storage || []}
+                            onChange={(tags) => {
+                              const removed = (productForm.storage || []).filter(t => !tags.includes(t));
+                              let updatedVariants = [...(productForm.variants || [])];
+                              if (removed.length > 0) {
+                                updatedVariants = updatedVariants.map(v => {
+                                  if (removed.includes(v.storage)) {
+                                    return { ...v, storage: '' };
+                                  }
+                                  return v;
+                                });
+                              }
+                              setProductForm({ ...productForm, storage: tags, variants: updatedVariants });
+                            }}
+                          />
+
+                          <VariantTagInput
+                            label="RAM Options"
+                            placeholder="e.g. 8GB, 16GB, 24GB, 32GB"
+                            tags={productForm.ram || []}
+                            onChange={(tags) => {
+                              const removed = (productForm.ram || []).filter(t => !tags.includes(t));
+                              let updatedVariants = [...(productForm.variants || [])];
+                              if (removed.length > 0) {
+                                updatedVariants = updatedVariants.map(v => {
+                                  if (removed.includes(v.ram)) {
+                                    return { ...v, ram: '' };
+                                  }
+                                  return v;
+                                });
+                              }
+                              setProductForm({ ...productForm, ram: tags, variants: updatedVariants });
+                            }}
+                          />
+
+                          <VariantTagInput
+                            label="Chip & Processor Options (Laptops & PCs / Mac)"
+                            placeholder="e.g. Apple M4 chip with 8‑core CPU and 8‑core GPU"
+                            tags={productForm.processors || []}
+                            onChange={(tags) => {
+                              const removed = (productForm.processors || []).filter(t => !tags.includes(t));
+                              let updatedVariants = [...(productForm.variants || [])];
+                              if (removed.length > 0) {
+                                updatedVariants = updatedVariants.map(v => {
+                                  if (removed.includes(v.processor)) {
+                                    return { ...v, processor: '' };
+                                  }
+                                  return v;
+                                });
+                              }
+                              setProductForm({ ...productForm, processors: tags, variants: updatedVariants });
+                            }}
+                          />
+
+                          <VariantTagInput
+                            label="Glass Finish Config Options"
+                            placeholder="e.g. Standard glass, Nano-texture glass"
+                            tags={productForm.glasses || []}
+                            onChange={(tags) => {
+                              const removed = (productForm.glasses || []).filter(t => !tags.includes(t));
+                              let updatedVariants = [...(productForm.variants || [])];
+                              if (removed.length > 0) {
+                                updatedVariants = updatedVariants.map(v => {
+                                  if (removed.includes(v.glass)) {
+                                    return { ...v, glass: '' };
+                                  }
+                                  return v;
+                                });
+                              }
+                              setProductForm({ ...productForm, glasses: tags, variants: updatedVariants });
+                            }}
+                          />
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
 
               </div>
 
@@ -1381,10 +1956,9 @@ export default function Products() {
                 ) : (
                   <div className="space-y-6">
                     {productForm.variants.map((v, vIdx) => {
-                      const sizeOptionsList = productForm.sizes.length > 0 ? productForm.sizes : ["14-inch", "16-inch"];
-                      const colorOptionsList = productForm.colors.length > 0 ? productForm.colors.map(c => typeof c === 'object' ? c.name : c) : ["Silver", "Space Gray", "Midnight"];
-                      const storageOptionsList = productForm.storage.length > 0 ? productForm.storage : ["256GB SSD", "512GB SSD", "1TB SSD"];
-                      const ramOptionsList = productForm.ram.length > 0 ? productForm.ram : ["8GB", "16GB", "24GB"];
+                      const selectedCatObj = categories.find(c => c._id === productForm.category || c.slug === productForm.category || c.name === productForm.category);
+                      const selectedCatSlug = (selectedCatObj?.slug || selectedCatObj?.name || productForm.category || '').toString().toLowerCase();
+                      const isWatchCategory = selectedCatSlug.includes('watch') || selectedCatSlug.includes('wearable');
 
                       return (
                         <div key={vIdx} className="bg-white border border-zinc-200 rounded-xl p-5 shadow-sm space-y-4 hover:border-zinc-300 transition-all text-left">
@@ -1395,12 +1969,11 @@ export default function Products() {
                               <GripVertical className="h-4 w-4 text-zinc-400 cursor-grab" />
                               <span className="text-[11px] font-extrabold text-zinc-800 uppercase tracking-wide flex items-center gap-2 font-mono">
                                 <span className="inline-block w-3.5 h-3.5 rounded-full border border-zinc-300 shrink-0" style={{ backgroundColor: resolveColorValue(v.color) }} />
-                                <span>#{vIdx + 1}: {v.color || 'Color'} {v.ram ? `| ${v.ram}` : ''} {v.storage ? `| ${v.storage}` : ''} {v.partNumber ? `| MPN: ${v.partNumber}` : ''} {v.price ? `| ₹${Number(v.price).toLocaleString('en-IN')}` : ''}</span>
+                                <span>#{vIdx + 1}: {v.color || 'Color'} {v.accessoriesSize && v.accessoriesSize !== 'None' ? `| Size: ${v.accessoriesSize}` : ''} {v.size ? `| ${v.size}` : ''} {v.bandSize ? `| Band: ${v.bandSize}` : ''} {v.connectivity ? `| ${v.connectivity}` : ''} {!isWatchCategory && v.ram ? `| ${v.ram}` : ''} {!isWatchCategory && v.storage ? `| ${v.storage}` : ''} {v.partNumber ? `| MPN: ${v.partNumber}` : ''} {v.price ? `| ₹${Number(v.price).toLocaleString('en-IN')}` : ''}</span>
                                 {vIdx === 0 && <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-sans">Default</span>}
                               </span>
                             </div>
                             <div className="flex items-center gap-1">
-                              {/* Reorder Buttons: First, Up, Down, Last */}
                               <div className="flex items-center gap-0.5 mr-2 bg-white/80 border border-zinc-200 rounded-lg p-0.5">
                                 <button
                                   type="button"
@@ -1456,13 +2029,13 @@ export default function Products() {
                             </div>
                           </div>
 
-                          {/* Grid row: Color, Storage, RAM, Price, Discount Price, Stock, Part No. / MPN */}
-                          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3.5">
+                          {/* Grid row: Watch vs Non-Watch Variant Fields */}
+                          <div className={`grid gap-3.5 ${isWatchCategory ? 'grid-cols-2 md:grid-cols-4 lg:grid-cols-5' : 'grid-cols-2 md:grid-cols-4 lg:grid-cols-7'}`}>
                             <div>
                               <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-1.5">Color</label>
                               <input
                                 type="text"
-                                placeholder="e.g. Midnight"
+                                placeholder="e.g. Space Grey"
                                 value={v.color || ''}
                                 onChange={(e) => {
                                   const updated = [...productForm.variants];
@@ -1474,67 +2047,168 @@ export default function Products() {
                               />
                             </div>
 
-                            <div>
-                              <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-1.5">Storage</label>
-                              <input
-                                type="text"
-                                placeholder="e.g. 512GB SSD"
-                                value={v.storage || ''}
-                                onChange={(e) => {
-                                  const updated = [...productForm.variants];
-                                  updated[vIdx] = { ...v, storage: e.target.value };
-                                  setProductForm({ ...productForm, variants: updated });
-                                }}
-                                className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 focus:border-[#0071e3] outline-none text-xs bg-white font-medium"
-                              />
-                            </div>
+                            {isWatchCategory ? (
+                              <>
+                                <div>
+                                  <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-1.5">Case Size</label>
+                                  <div className="flex gap-1.5 items-center">
+                                    <select
+                                      value={['40mm', '42mm', '44mm', '46mm', '41mm', '45mm', '49mm'].includes(v.size) ? v.size : ''}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        const updated = [...productForm.variants];
+                                        updated[vIdx] = { ...v, size: val };
+                                        setProductForm({ ...productForm, variants: updated });
+                                      }}
+                                      className="px-2 py-2.5 rounded-xl border border-zinc-200 focus:border-[#0071e3] outline-none text-xs bg-white font-bold text-zinc-900 shrink-0 cursor-pointer shadow-xs"
+                                    >
+                                      <option value="">Select Size</option>
+                                      <option value="40mm">40mm</option>
+                                      <option value="42mm">42mm</option>
+                                      <option value="44mm">44mm</option>
+                                      <option value="46mm">46mm</option>
+                                      <option value="41mm">41mm</option>
+                                      <option value="45mm">45mm</option>
+                                      <option value="49mm">49mm</option>
+                                    </select>
+                                    <input
+                                      type="text"
+                                      placeholder="e.g. 42mm"
+                                      value={v.size || ''}
+                                      onChange={(e) => {
+                                        const updated = [...productForm.variants];
+                                        updated[vIdx] = { ...v, size: e.target.value };
+                                        setProductForm({ ...productForm, variants: updated });
+                                      }}
+                                      className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 focus:border-[#0071e3] outline-none text-xs bg-white font-medium"
+                                    />
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-1.5">Band Size</label>
+                                  <div className="flex gap-1.5 items-center">
+                                    <select
+                                      value={['S', 'M', 'L', 'S/M', 'M/L', 'Loop', 'Solo Loop', 'Sport Loop', 'Alpine Loop', 'Milanese Loop', 'Trail Loop', 'Ocean Band'].includes(v.bandSize) ? v.bandSize : ''}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        const updated = [...productForm.variants];
+                                        updated[vIdx] = { ...v, bandSize: val };
+                                        setProductForm({ ...productForm, variants: updated });
+                                      }}
+                                      className="px-2 py-2.5 rounded-xl border border-zinc-200 focus:border-[#0071e3] outline-none text-xs bg-white font-bold text-zinc-900 shrink-0 cursor-pointer shadow-xs"
+                                    >
+                                      <option value="">Select Band</option>
+                                      <option value="S">S</option>
+                                      <option value="M">M</option>
+                                      <option value="L">L</option>
+                                      <option value="S/M">S/M</option>
+                                      <option value="M/L">M/L</option>
+                                      <option value="Loop">Loop</option>
+                                      <option value="Solo Loop">Solo Loop</option>
+                                      <option value="Sport Loop">Sport Loop</option>
+                                      <option value="Alpine Loop">Alpine Loop</option>
+                                      <option value="Milanese Loop">Milanese Loop</option>
+                                      <option value="Trail Loop">Trail Loop</option>
+                                      <option value="Ocean Band">Ocean Band</option>
+                                    </select>
+                                    <input
+                                      type="text"
+                                      placeholder="e.g. S, M, L, S/M or Loop"
+                                      value={v.bandSize || ''}
+                                      onChange={(e) => {
+                                        const updated = [...productForm.variants];
+                                        updated[vIdx] = { ...v, bandSize: e.target.value };
+                                        setProductForm({ ...productForm, variants: updated });
+                                      }}
+                                      className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 focus:border-[#0071e3] outline-none text-xs bg-white font-medium"
+                                    />
+                                  </div>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div>
+                                  <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-1.5">Storage</label>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. 512GB SSD"
+                                    value={v.storage || ''}
+                                    onChange={(e) => {
+                                      const updated = [...productForm.variants];
+                                      updated[vIdx] = { ...v, storage: e.target.value };
+                                      setProductForm({ ...productForm, variants: updated });
+                                    }}
+                                    className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 focus:border-[#0071e3] outline-none text-xs bg-white font-medium"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-1.5">RAM</label>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. 16GB"
+                                    value={v.ram || ''}
+                                    onChange={(e) => {
+                                      const updated = [...productForm.variants];
+                                      updated[vIdx] = { ...v, ram: e.target.value };
+                                      setProductForm({ ...productForm, variants: updated });
+                                    }}
+                                    className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 focus:border-[#0071e3] outline-none text-xs bg-white font-medium"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-1.5">Glass Finish</label>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. Standard glass / Nano-texture glass"
+                                    value={v.glass || ''}
+                                    onChange={(e) => {
+                                      const updated = [...productForm.variants];
+                                      updated[vIdx] = { ...v, glass: e.target.value };
+                                      setProductForm({ ...productForm, variants: updated });
+                                    }}
+                                    className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 focus:border-[#0071e3] outline-none text-xs bg-white font-medium"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-1.5">Chip & Processor</label>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. Apple M5 chip with 10-core CPU"
+                                    value={v.processor || v.chip || ''}
+                                    onChange={(e) => {
+                                      const updated = [...productForm.variants];
+                                      updated[vIdx] = { ...v, processor: e.target.value, chip: e.target.value };
+                                      setProductForm({ ...productForm, variants: updated });
+                                    }}
+                                    className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 focus:border-[#0071e3] outline-none text-xs bg-white font-medium text-zinc-900 font-sans"
+                                  />
+                                </div>
+                              </>
+                            )}
 
                             <div>
-                              <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-1.5">RAM</label>
-                              <input
-                                type="text"
-                                placeholder="e.g. 16GB"
-                                value={v.ram || ''}
+                              <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-1.5">Accessories Size</label>
+                              <select
+                                value={v.accessoriesSize || ''}
                                 onChange={(e) => {
                                   const updated = [...productForm.variants];
-                                  updated[vIdx] = { ...v, ram: e.target.value };
+                                  updated[vIdx] = { ...v, accessoriesSize: e.target.value };
                                   setProductForm({ ...productForm, variants: updated });
                                 }}
-                                className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 focus:border-[#0071e3] outline-none text-xs bg-white font-medium"
-                              />
+                                className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 focus:border-[#0071e3] outline-none text-xs bg-white font-bold text-zinc-900 cursor-pointer shadow-xs"
+                              >
+                                <option value="">None / Not Applicable</option>
+                                <option value="XXS">XXS</option>
+                                <option value="XS">XS</option>
+                                <option value="Small">Small</option>
+                                <option value="Medium">Medium</option>
+                                <option value="Large">Large</option>
+                              </select>
                             </div>
-
-                            <div>
-                              <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-1.5">Glass Finish</label>
-                              <input
-                                type="text"
-                                placeholder="e.g. Standard glass / Nano-texture glass"
-                                value={v.glass || ''}
-                                onChange={(e) => {
-                                  const updated = [...productForm.variants];
-                                  updated[vIdx] = { ...v, glass: e.target.value };
-                                  setProductForm({ ...productForm, variants: updated });
-                                }}
-                                className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 focus:border-[#0071e3] outline-none text-xs bg-white font-medium"
-                              />
-                            </div>
-
-                            <div>
-                              <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-1.5">Chip & Processor</label>
-                              <input
-                                type="text"
-                                placeholder="e.g. Apple M5 chip with 10-core CPU"
-                                value={v.processor || v.chip || ''}
-                                onChange={(e) => {
-                                  const updated = [...productForm.variants];
-                                  updated[vIdx] = { ...v, processor: e.target.value, chip: e.target.value };
-                                  setProductForm({ ...productForm, variants: updated });
-                                }}
-                                className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 focus:border-[#0071e3] outline-none text-xs bg-white font-medium text-zinc-900 font-sans"
-                              />
-                            </div>
-
-
 
                             <div>
                               <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-1.5">Part No. / MPN *</label>
@@ -1551,28 +2225,62 @@ export default function Products() {
                               />
                             </div>
 
-                            <div className="col-span-2">
-                              <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-1.5">Variant Title (Optional)</label>
-                              <input
-                                type="text"
-                                placeholder="e.g. 11-inch iPad Pro Wi‑Fi 1TB with nano-texture glass"
-                                value={v.displayTitle || v.title || ''}
-                                onChange={(e) => {
-                                  const updated = [...productForm.variants];
-                                  updated[vIdx] = { ...v, displayTitle: e.target.value, title: e.target.value };
-                                  setProductForm({ ...productForm, variants: updated });
-                                }}
-                                className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 focus:border-[#0071e3] outline-none text-xs bg-white font-medium"
-                              />
-                            </div>
+                             {isWatchCategory ? (
+                              <div className="col-span-2">
+                                <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-1.5">Connectivity / Variant Title</label>
+                                <div className="flex gap-2 items-center">
+                                  <select
+                                    value={v.connectivity || (v.displayTitle?.includes('Cellular') ? 'GPS + Cellular' : v.displayTitle?.includes('GPS') ? 'GPS' : '')}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      const updated = [...productForm.variants];
+                                      updated[vIdx] = { ...v, connectivity: val, displayTitle: val, title: val };
+                                      setProductForm({ ...productForm, variants: updated });
+                                    }}
+                                    className="px-2.5 py-2.5 rounded-xl border border-zinc-200 focus:border-[#0071e3] outline-none text-xs bg-white font-bold text-zinc-900 shrink-0 cursor-pointer shadow-xs"
+                                  >
+                                    <option value="">Select Connectivity</option>
+                                    <option value="GPS">GPS</option>
+                                    <option value="GPS + Cellular">GPS + Cellular</option>
+                                  </select>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. GPS or GPS + Cellular"
+                                    value={v.connectivity || v.displayTitle || v.title || ''}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      const updated = [...productForm.variants];
+                                      updated[vIdx] = { ...v, connectivity: val, displayTitle: val, title: val };
+                                      setProductForm({ ...productForm, variants: updated });
+                                    }}
+                                    className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 focus:border-[#0071e3] outline-none text-xs bg-white font-medium"
+                                  />
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="col-span-2">
+                                <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-1.5">Variant Title (Optional)</label>
+                                <input
+                                  type="text"
+                                  placeholder="e.g. 11-inch iPad Pro Wi‑Fi 1TB with nano-texture glass"
+                                  value={v.displayTitle || v.title || ''}
+                                  onChange={(e) => {
+                                    const updated = [...productForm.variants];
+                                    updated[vIdx] = { ...v, displayTitle: e.target.value, title: e.target.value };
+                                    setProductForm({ ...productForm, variants: updated });
+                                  }}
+                                  className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 focus:border-[#0071e3] outline-none text-xs bg-white font-medium"
+                                />
+                              </div>
+                            )}
 
                             <div>
-                              <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-1.5">Price (₹) *</label>
+                              <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-1.5">Price / MRP (₹) *</label>
                               <input
                                 type="number"
                                 required
                                 min="0"
-                                placeholder="149900"
+                                placeholder="79900"
                                 value={v.price || ''}
                                 onChange={(e) => {
                                   const updated = [...productForm.variants];
@@ -1584,19 +2292,48 @@ export default function Products() {
                             </div>
 
                             <div>
-                              <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-1.5">Discount Price (₹)</label>
+                              <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-1.5">Discount (% OFF or ₹)</label>
                               <input
-                                type="number"
-                                min="0"
-                                placeholder="139900"
-                                value={v.discountPrice || ''}
+                                type="text"
+                                placeholder="e.g. 10 (for 10% OFF) or 0"
+                                value={v.discountInput !== undefined && v.discountInput !== null ? v.discountInput : (v.discountPercent !== undefined ? v.discountPercent : '')}
                                 onChange={(e) => {
+                                  const val = e.target.value;
                                   const updated = [...productForm.variants];
-                                  updated[vIdx] = { ...v, discountPrice: e.target.value };
+                                  updated[vIdx] = { ...v, discountInput: val };
                                   setProductForm({ ...productForm, variants: updated });
                                 }}
-                                className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 focus:border-[#0071e3] outline-none text-xs"
+                                className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 focus:border-[#0071e3] outline-none text-xs font-bold text-emerald-700 bg-emerald-50/50"
                               />
+                              {(() => {
+                                const vPrice = Number(v.price || productForm.price || 0);
+                                const dRaw = v.discountInput !== undefined && v.discountInput !== null && v.discountInput !== '' 
+                                  ? v.discountInput 
+                                  : (v.discountPercent !== undefined ? v.discountPercent : 0);
+                                const dVal = Number(dRaw);
+                                if (vPrice > 0) {
+                                  let calcSelling = vPrice;
+                                  let calcPct = 0;
+                                  if (dVal > 0 && dVal <= 99) {
+                                    calcPct = Math.round(dVal);
+                                    calcSelling = Math.round(vPrice - (vPrice * dVal / 100));
+                                  } else if (dVal > 99 && dVal < vPrice) {
+                                    if (dVal < (vPrice / 2)) {
+                                      calcSelling = vPrice - dVal;
+                                      calcPct = Math.round((dVal / vPrice) * 100);
+                                    } else {
+                                      calcSelling = dVal;
+                                      calcPct = Math.round(((vPrice - dVal) / vPrice) * 100);
+                                    }
+                                  }
+                                  return (
+                                    <span className={`text-[10px] font-extrabold mt-1 block ${calcPct > 0 ? 'text-emerald-600' : 'text-zinc-500'}`}>
+                                      Selling Price: ₹{calcSelling.toLocaleString('en-IN')} {calcPct > 0 ? `(${calcPct}% OFF)` : '(0% OFF)'}
+                                    </span>
+                                  );
+                                }
+                                return null;
+                              })()}
                             </div>
 
                             <div>
@@ -1968,6 +2705,197 @@ export default function Products() {
           </div>
         </div>
       )}
+
+      {/* Full Category Excel Manager Modal */}
+      {showExcelManagerModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-4xl bg-zinc-950 text-white border border-zinc-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 relative overflow-hidden animate-in zoom-in-95 duration-250 text-left">
+            <header className="flex justify-between items-start border-b border-zinc-800 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <FileSpreadsheet className="h-6 w-6 text-emerald-400" />
+                  <h2 className="font-bold text-white text-xl font-sans">Category Product Excel Sheets Manager</h2>
+                </div>
+                <p className="text-xs text-zinc-400 mt-1">
+                  Download pre-filled Excel sheets for any product category, update pricing or details, and re-upload to instantly update live website products.
+                </p>
+              </div>
+              <button 
+                onClick={() => setShowExcelManagerModal(false)}
+                className="p-1.5 rounded-full bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors border-0 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[60vh] overflow-y-auto pr-1">
+              {CATEGORY_EXCEL_ITEMS.map((cat) => {
+                const IconComp = cat.icon;
+                const isExporting = exportingCategory === cat.key;
+
+                return (
+                  <div key={cat.key} className="p-4 bg-zinc-900/80 border border-zinc-800 rounded-2xl flex flex-col justify-between gap-4 hover:border-zinc-700 transition-all">
+                    <div>
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className={`p-2.5 rounded-xl ${cat.color} text-white shrink-0`}>
+                          <IconComp className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-white text-base font-sans">{cat.name} Sheet</h4>
+                          <span className="text-[10px] font-mono text-zinc-400">key: {cat.key}</span>
+                        </div>
+                      </div>
+                      <p className="text-xs text-zinc-400 leading-relaxed">{cat.subtitle}</p>
+                    </div>
+
+                    <div className="flex gap-2.5 pt-2 border-t border-zinc-800/80">
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadCategoryExcel(cat.key, cat.name)}
+                        disabled={isExporting}
+                        className="flex-1 flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 py-2.5 px-3 rounded-xl text-xs font-bold transition-colors cursor-pointer border border-zinc-700 disabled:opacity-50"
+                      >
+                        {isExporting ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-emerald-400" />
+                        ) : (
+                          <Download className="h-4 w-4 text-emerald-400" />
+                        )}
+                        <span>Download Sheet</span>
+                      </button>
+
+                      <label className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 px-3 rounded-xl text-xs font-bold transition-colors cursor-pointer border-0 text-center">
+                        <Upload className="h-4 w-4" />
+                        <span>Upload Sheet</span>
+                        <input
+                          type="file"
+                          accept=".xlsx, .xls, .csv"
+                          className="hidden"
+                          onChange={(e) => handleFileSelectForCategory(e, cat.key, cat.name)}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="pt-3 border-t border-zinc-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowExcelManagerModal(false)}
+                className="bg-zinc-800 hover:bg-zinc-700 text-white font-bold px-6 py-2.5 rounded-xl text-xs transition-colors cursor-pointer border-0"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Excel Sheet Import Preview & Confirmation Modal */}
+      {showExcelPreviewModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-3xl bg-white border border-zinc-200 rounded-3xl p-6 shadow-2xl space-y-6 relative overflow-hidden animate-in zoom-in-95 duration-250 text-left">
+            <header className="flex justify-between items-center border-b border-zinc-150 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-800 border border-emerald-300">
+                    Category: {selectedCategoryForImport?.name}
+                  </span>
+                  <span className="text-xs text-zinc-400 font-medium">{selectedExcelFile?.name}</span>
+                </div>
+                <h3 className="font-bold text-zinc-900 text-xl mt-1">Confirm Excel Products Import</h3>
+              </div>
+              <button 
+                onClick={() => setShowExcelPreviewModal(false)}
+                className="p-1 rounded-full hover:bg-zinc-100 text-zinc-400 hover:text-zinc-950 transition-colors border-0 bg-transparent cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+
+            {loadingExcelPreview ? (
+              <div className="p-12 flex flex-col items-center justify-center text-zinc-400">
+                <Loader2 className="h-9 w-9 animate-spin text-emerald-600 mb-3" />
+                <span className="text-sm font-medium">Parsing Excel sheet rows...</span>
+              </div>
+            ) : excelPreviewData ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <div className="p-3.5 bg-zinc-50 rounded-2xl border border-zinc-200">
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Excel Rows</span>
+                    <span className="text-lg font-bold text-zinc-900">{excelPreviewData.totalRows}</span>
+                  </div>
+                  <div className="p-3.5 bg-emerald-50 rounded-2xl border border-emerald-200">
+                    <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider block">Target Products</span>
+                    <span className="text-lg font-bold text-emerald-900">{excelPreviewData.totalProducts}</span>
+                  </div>
+                  <div className="p-3.5 bg-blue-50 rounded-2xl border border-blue-200 col-span-2 sm:col-span-1">
+                    <span className="text-[10px] font-bold text-blue-700 uppercase tracking-wider block">Target Category</span>
+                    <span className="text-sm font-bold text-blue-900">{selectedCategoryForImport?.name}</span>
+                  </div>
+                </div>
+
+                <div className="border border-zinc-200 rounded-2xl overflow-hidden">
+                  <div className="bg-zinc-100/80 px-4 py-2.5 border-b border-zinc-200 flex justify-between items-center text-xs font-bold text-zinc-600 uppercase tracking-wider">
+                    <span>Parsed Product Titles</span>
+                    <span>Variants & MPNs</span>
+                  </div>
+                  <div className="max-h-60 overflow-y-auto divide-y divide-zinc-100 text-xs">
+                    {excelPreviewData.products.map((p, idx) => (
+                      <div key={idx} className="p-3 hover:bg-zinc-50/80 flex items-center justify-between gap-4">
+                        <div>
+                          <p className="font-bold text-zinc-900">{p.title}</p>
+                          <p className="text-[10px] text-zinc-400">Brand: {p.brand} | Category: {p.category}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="inline-block px-2 py-0.5 bg-zinc-100 text-zinc-700 font-bold rounded-md text-[10px]">
+                            {p.variantCount} Variant{p.variantCount > 1 ? 's' : ''}
+                          </span>
+                          {p.samplePartNumber && (
+                            <p className="text-[10px] text-zinc-400 mt-0.5 font-mono">{p.samplePartNumber}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-rose-600 text-sm">Failed to load preview data.</p>
+            )}
+
+            <div className="pt-3 border-t border-zinc-150 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowExcelPreviewModal(false)}
+                className="bg-zinc-100 hover:bg-zinc-200 text-zinc-800 font-bold px-5 py-2.5 rounded-xl text-xs transition-colors cursor-pointer border border-zinc-250"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmExcelImport}
+                disabled={importingExcel || !excelPreviewData}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-2.5 rounded-xl text-xs transition-all cursor-pointer border-0 shadow-md flex items-center gap-2 disabled:opacity-50"
+              >
+                {importingExcel ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin text-white" />
+                    <span>Uploading & Syncing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="h-4 w-4" />
+                    <span>Confirm & Live Sync Database</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

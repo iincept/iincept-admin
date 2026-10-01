@@ -349,10 +349,10 @@ export default function NavbarManager() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 font-sans flex items-center gap-2.5">
             <Navigation className="h-6 w-6 text-[#0071e3]" />
-            Top Header Navbar Menu Manager
+            Navbar Dropdown Manager
           </h1>
           <p className="text-zinc-500 mt-1 text-sm">
-            Manage which category links & tabs appear in the main header navbar, their order, custom links, and show/hide status!
+            Manage storefront navbar categories, sub-items list (product names) and their right-side showcase preview images!
           </p>
         </div>
 

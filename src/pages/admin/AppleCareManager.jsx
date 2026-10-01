@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
 import axiosClient from '../../services/axiosClient';
 import { notifyAdminChange } from '../../services/liveSyncService';
-import { 
-  ShieldCheck, 
-  Plus, 
-  Trash2, 
-  Loader2, 
-  Save, 
-  Upload, 
-  CheckCircle2, 
+import {
+  ShieldCheck,
+  Plus,
+  Trash2,
+  Loader2,
+  Save,
+  Upload,
+  CheckCircle2,
   AlertCircle,
   ArrowUp,
   ArrowDown,
@@ -104,13 +104,32 @@ export default function AppleCareManager() {
     setTimeout(() => setMessage(null), 4000);
   };
 
+const parsePriceNumber = (val) => {
+  if (val === null || val === undefined) return 0;
+  if (typeof val === 'number') return val;
+  const cleaned = String(val).replace(/[^0-9.]/g, '');
+  return parseFloat(cleaned) || 0;
+};
+
+const calculateFinalPriceStr = (mrp, discount) => {
+  const mrpNum = parsePriceNumber(mrp);
+  const discNum = Math.min(100, Math.max(0, parseFloat(discount) || 0));
+  const finalNum = Math.max(0, Math.round(mrpNum - (mrpNum * discNum / 100)));
+  return `₹${finalNum.toLocaleString('en-IN')}`;
+};
+
   const handleUpdateRow = (index, field, value) => {
     setMacRows(prev => {
       const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: value };
-      // Keep yearly and salePrice synced
-      if (field === 'salePrice') updated[index].yearly = value;
-      if (field === 'yearly' && !updated[index].salePrice) updated[index].salePrice = value;
+      const current = updated[index];
+      let row = { ...current, [field]: value };
+      if (field === 'discount' || field === 'mrp') {
+        const discNum = Math.min(100, Math.max(0, parseFloat(row.discount) || 0));
+        const computedFinal = calculateFinalPriceStr(row.mrp, discNum);
+        row.salePrice = computedFinal;
+        row.yearly = computedFinal;
+      }
+      updated[index] = row;
       return updated;
     });
   };
@@ -136,10 +155,10 @@ export default function AppleCareManager() {
 
   const handleDeleteRow = async (index) => {
     if (!window.confirm('Are you sure you want to remove this Mac AppleCare product?')) return;
-    
+
     const updatedRows = macRows.filter((_, i) => i !== index);
     setMacRows(updatedRows);
-    
+
     try {
       let updatedTables = [...pricingTables];
       const macTableIndex = updatedTables.findIndex(t => t.categoryKey === 'mac');
@@ -177,7 +196,7 @@ export default function AppleCareManager() {
       try {
         localStorage.setItem('iincept_admin_mac_applecare_rows_v2', JSON.stringify(newMacTable.rows));
         localStorage.setItem('iincept_mac_applecare_rows_v2', JSON.stringify(newMacTable.rows.filter(r => r.isActive !== false)));
-      } catch (e) {}
+      } catch (e) { }
 
       showMessage('success', 'Mac product deleted permanently!');
     } catch (err) {
@@ -340,9 +359,8 @@ export default function AppleCareManager() {
 
       {/* Message Toast */}
       {message && (
-        <div className={`p-4 rounded-xl flex items-center gap-3 border text-sm font-medium ${
-          message.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'
-        }`}>
+        <div className={`p-4 rounded-xl flex items-center gap-3 border text-sm font-medium ${message.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'
+          }`}>
           {message.type === 'success' ? <CheckCircle2 className="h-5 w-5 shrink-0" /> : <AlertCircle className="h-5 w-5 shrink-0" />}
           <span>{message.text}</span>
         </div>
@@ -390,10 +408,10 @@ export default function AppleCareManager() {
         <div className="p-4 sm:p-6 space-y-6">
           {macRows.map((row, idx) => (
             <div key={idx} className="p-5 bg-zinc-50/60 border border-zinc-200 rounded-2xl space-y-4 transition-all hover:border-zinc-300">
-              
+
               {/* Row Header: Reorder + Image + Title Preview + Actions */}
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-200/80 pb-4">
-                
+
                 {/* Left: Move & Image & Model Title */}
                 <div className="flex items-center gap-3.5 flex-1 min-w-0">
                   <div className="flex items-center gap-1 shrink-0">
@@ -439,7 +457,7 @@ export default function AppleCareManager() {
                   </div>
 
                   {/* Thumbnail Image */}
-                  <div 
+                  <div
                     className="bg-white rounded-xl border border-zinc-200 flex items-center justify-center overflow-hidden p-1 shrink-0 relative"
                     style={{ width: '56px', height: '56px', minWidth: '56px', minHeight: '56px', maxWidth: '56px', maxHeight: '56px' }}
                   >
@@ -511,15 +529,13 @@ export default function AppleCareManager() {
                   <button
                     type="button"
                     onClick={() => handleUpdateRow(idx, 'isActive', !row.isActive)}
-                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                      row.isActive !== false ? 'bg-[#0071e3]' : 'bg-zinc-300'
-                    }`}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${row.isActive !== false ? 'bg-[#0071e3]' : 'bg-zinc-300'
+                      }`}
                     title={row.isActive !== false ? 'Model Active' : 'Model Hidden'}
                   >
                     <span
-                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                        row.isActive !== false ? 'translate-x-5' : 'translate-x-0'
-                      }`}
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${row.isActive !== false ? 'translate-x-5' : 'translate-x-0'
+                        }`}
                     />
                   </button>
 
@@ -536,7 +552,7 @@ export default function AppleCareManager() {
 
               {/* Form Input Fields Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                
+
                 {/* 1. Model / Title */}
                 <div>
                   <label className="block text-xs font-bold text-zinc-700 mb-1 flex items-center gap-1">
@@ -582,49 +598,60 @@ export default function AppleCareManager() {
                   />
                 </div>
 
-                {/* 4. MRP */}
+                {/* 4. MRP Price (EDITABLE) */}
                 <div>
-                  <label className="block text-xs font-bold text-zinc-700 mb-1 flex items-center gap-1">
-                    <DollarSign className="w-3.5 h-3.5 text-zinc-500" />
-                    MRP Price
+                  <label className="block text-xs font-bold text-zinc-700 mb-1 flex items-center justify-between">
+                    <span className="flex items-center gap-1">
+                      <DollarSign className="w-3.5 h-3.5 text-zinc-500" />
+                      MRP Price (₹)
+                    </span>
+                    <span className="text-[10px] text-[#0071e3] font-semibold uppercase">EDITABLE</span>
                   </label>
                   <input
                     type="text"
                     value={row.mrp || ''}
                     onChange={(e) => handleUpdateRow(idx, 'mrp', e.target.value)}
-                    placeholder="e.g. ₹14,900.00"
-                    className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-900 focus:outline-none focus:border-[#0071e3]"
+                    placeholder="e.g. ₹22,900.00"
+                    className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:outline-none focus:border-[#0071e3]"
                   />
+                  <span className="text-[10px] text-zinc-400 mt-0.5 block font-medium">Enter Original MRP</span>
                 </div>
 
-                {/* 5. Discount */}
+                {/* 5. Discount (%) */}
                 <div>
                   <label className="block text-xs font-bold text-zinc-700 mb-1 flex items-center gap-1">
                     <Percent className="w-3.5 h-3.5 text-emerald-600" />
-                    Discount Label
+                    Discount (%)
                   </label>
                   <input
-                    type="text"
-                    value={row.discount || ''}
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={row.discount !== undefined && row.discount !== null ? String(row.discount).replace(/[^0-9.]/g, '') : ''}
                     onChange={(e) => handleUpdateRow(idx, 'discount', e.target.value)}
-                    placeholder="e.g. 13% OFF"
+                    placeholder="0 to 100"
                     className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-900 focus:outline-none focus:border-[#0071e3]"
                   />
                 </div>
 
-                {/* 6. Sale Price / 3-Year Price */}
+                {/* 6. Final Price (AUTOMATICALLY CALCULATED) */}
                 <div>
-                  <label className="block text-xs font-bold text-zinc-700 mb-1 flex items-center gap-1">
-                    <DollarSign className="w-3.5 h-3.5 text-[#0071e3]" />
-                    Sale Price / 3-Year Price
+                  <label className="block text-xs font-bold text-zinc-700 mb-1 flex items-center justify-between">
+                    <span className="flex items-center gap-1">
+                      <DollarSign className="w-3.5 h-3.5 text-[#0071e3]" />
+                      Final Price (₹)
+                    </span>
+                    <span className="text-[10px] text-emerald-600 font-bold uppercase">AUTO</span>
                   </label>
                   <input
                     type="text"
-                    value={row.salePrice || row.yearly || ''}
-                    onChange={(e) => handleUpdateRow(idx, 'salePrice', e.target.value)}
-                    placeholder="e.g. ₹12,900.00"
-                    className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-900 focus:outline-none focus:border-[#0071e3]"
+                    value={calculateFinalPriceStr(row.mrp, row.discount)}
+                    readOnly
+                    disabled
+                    placeholder="e.g. ₹12,900"
+                    className="w-full px-3 py-2 bg-emerald-50/60 border border-emerald-200/80 rounded-xl text-xs font-extrabold text-emerald-800 cursor-not-allowed select-none focus:outline-none"
                   />
+                  <span className="text-[10px] text-emerald-600 mt-0.5 block font-medium">AUTOMATICALLY CALCULATED</span>
                 </div>
 
                 {/* 7. Image URL field */}
@@ -730,8 +757,14 @@ export default function AppleCareManager() {
 
                 <div className="flex items-center gap-2 text-right justify-end">
                   {row.mrp && <span className="text-xs line-through text-zinc-400 font-medium">{row.mrp}</span>}
-                  {row.discount && <span className="text-[10px] font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">{row.discount}</span>}
-                  <span className="text-sm sm:text-base text-zinc-900 tabular-nums font-extrabold min-w-[85px] text-right">{row.salePrice || row.yearly || '—'}</span>
+                  {row.discount !== undefined && row.discount !== null && row.discount !== '' && (
+                    <span className="text-[10px] font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                      {String(row.discount).includes('%') ? row.discount : `${String(row.discount).replace(/[^0-9.]/g, '')}% OFF`}
+                    </span>
+                  )}
+                  <span className="text-sm sm:text-base text-zinc-900 tabular-nums font-extrabold min-w-[85px] text-right">
+                    {calculateFinalPriceStr(row.mrp, row.discount)}
+                  </span>
                 </div>
               </div>
             ))}

@@ -15,6 +15,7 @@ import {
   Image as ImageIcon
 } from 'lucide-react';
 import axiosClient from '../../services/axiosClient';
+import { notifyAdminChange } from '../../services/liveSyncService';
 
 export default function Testimonials() {
   const [loading, setLoading] = useState(false);
@@ -137,6 +138,7 @@ export default function Testimonials() {
     setError(null);
     try {
       await axiosClient.put('/settings', { testimonials });
+      notifyAdminChange('settings', { action: 'update_testimonials' });
       showSuccessMessage('Testimonials & Customer Reviews updated successfully!');
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'Failed to save testimonials');

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import axiosClient from '../../services/axiosClient';
+import { notifyAdminChange } from '../../services/liveSyncService';
 import { 
   ShieldCheck, 
   Plus, 
@@ -114,12 +115,32 @@ export default function DisplayAppleCareManager() {
     showMessage('success', 'Image removed! Click "Save Changes" to apply.');
   };
 
+const parsePriceNumber = (val) => {
+  if (val === null || val === undefined) return 0;
+  if (typeof val === 'number') return val;
+  const cleaned = String(val).replace(/[^0-9.]/g, '');
+  return parseFloat(cleaned) || 0;
+};
+
+const calculateFinalPriceStr = (mrp, discount) => {
+  const mrpNum = parsePriceNumber(mrp);
+  const discNum = Math.min(100, Math.max(0, parseFloat(discount) || 0));
+  const finalNum = Math.max(0, Math.round(mrpNum - (mrpNum * discNum / 100)));
+  return `₹${finalNum.toLocaleString('en-IN')}`;
+};
+
   const handleUpdateRow = (index, field, value) => {
     setDisplayRows(prev => {
       const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: value };
-      if (field === 'salePrice') updated[index].yearly = value;
-      if (field === 'yearly' && !updated[index].salePrice) updated[index].salePrice = value;
+      const current = updated[index];
+      let row = { ...current, [field]: value };
+      if (field === 'discount' || field === 'mrp') {
+        const discNum = Math.min(100, Math.max(0, parseFloat(row.discount) || 0));
+        const computedFinal = calculateFinalPriceStr(row.mrp, discNum);
+        row.salePrice = computedFinal;
+        row.yearly = computedFinal;
+      }
+      updated[index] = row;
       return updated;
     });
   };
@@ -289,6 +310,8 @@ export default function DisplayAppleCareManager() {
       const res = await axiosClient.put('/settings', {
         appleCarePricingTables: updatedTables
       });
+
+      notifyAdminChange('settings', { action: 'update_display_applecare' });
 
       if (res.data?.appleCarePricingTables) {
         setPricingTables(res.data.appleCarePricingTables);
@@ -565,10 +588,14 @@ export default function DisplayAppleCareManager() {
                   />
                 </div>
 
-                {/* Pricing Fields: MRP, Discount, Sale Price, Monthly */}
+                {/* 4. MRP Price (EDITABLE) */}
                 <div>
-                  <label className="block text-xs font-bold text-zinc-700 mb-1 flex items-center gap-1">
-                    <DollarSign className="h-3.5 w-3.5 text-zinc-400" /> MRP (Original Price)
+                  <label className="block text-xs font-bold text-zinc-700 mb-1 flex items-center justify-between">
+                    <span className="flex items-center gap-1">
+                      <DollarSign className="w-3.5 h-3.5 text-zinc-500" />
+                      MRP Price (₹)
+                    </span>
+                    <span className="text-[10px] text-[#0071e3] font-semibold uppercase">EDITABLE</span>
                   </label>
                   <input
                     type="text"
@@ -577,32 +604,44 @@ export default function DisplayAppleCareManager() {
                     placeholder="e.g. ₹14,900.00"
                     className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:outline-none focus:border-[#0071e3]"
                   />
+                  <span className="text-[10px] text-zinc-400 mt-0.5 block font-medium">Enter Original MRP</span>
                 </div>
 
+                {/* 5. Discount (%) */}
                 <div>
                   <label className="block text-xs font-bold text-zinc-700 mb-1 flex items-center gap-1">
-                    <Percent className="h-3.5 w-3.5 text-zinc-400" /> Discount Badge
+                    <Percent className="w-3.5 h-3.5 text-emerald-600" />
+                    Discount (%)
                   </label>
                   <input
-                    type="text"
-                    value={row.discount || ''}
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={row.discount !== undefined && row.discount !== null ? String(row.discount).replace(/[^0-9.]/g, '') : ''}
                     onChange={(e) => handleUpdateRow(idx, 'discount', e.target.value)}
-                    placeholder="e.g. 13% OFF or -13%"
-                    className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-emerald-600 focus:outline-none focus:border-[#0071e3]"
+                    placeholder="0 to 100"
+                    className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-900 focus:outline-none focus:border-[#0071e3]"
                   />
                 </div>
 
+                {/* 6. Final Price (AUTOMATICALLY CALCULATED) */}
                 <div>
-                  <label className="block text-xs font-bold text-zinc-700 mb-1 flex items-center gap-1">
-                    <DollarSign className="h-3.5 w-3.5 text-emerald-600" /> Final Sale Price (Yearly)
+                  <label className="block text-xs font-bold text-zinc-700 mb-1 flex items-center justify-between">
+                    <span className="flex items-center gap-1">
+                      <DollarSign className="w-3.5 h-3.5 text-[#0071e3]" />
+                      Final Price (₹)
+                    </span>
+                    <span className="text-[10px] text-emerald-600 font-bold uppercase">AUTO</span>
                   </label>
                   <input
                     type="text"
-                    value={row.salePrice || row.yearly || ''}
-                    onChange={(e) => handleUpdateRow(idx, 'salePrice', e.target.value)}
-                    placeholder="e.g. 12,900.00 or ₹12,900.00"
-                    className="w-full px-3 py-2 bg-white border border-emerald-300 rounded-xl text-xs font-extrabold text-emerald-700 focus:outline-none focus:border-emerald-600"
+                    value={calculateFinalPriceStr(row.mrp, row.discount)}
+                    readOnly
+                    disabled
+                    placeholder="e.g. ₹12,900"
+                    className="w-full px-3 py-2 bg-emerald-50/60 border border-emerald-200/80 rounded-xl text-xs font-extrabold text-emerald-800 cursor-not-allowed select-none focus:outline-none"
                   />
+                  <span className="text-[10px] text-emerald-600 mt-0.5 block font-medium">AUTOMATICALLY CALCULATED</span>
                 </div>
 
                 {/* Image URL & File Upload */}

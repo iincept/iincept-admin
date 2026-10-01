@@ -31,6 +31,8 @@ const FooterManager = lazy(() => import('./pages/admin/FooterManager'));
 const Returns = lazy(() => import('./pages/admin/Returns'));
 const Enquiries = lazy(() => import('./pages/admin/Enquiries'));
 const SalesReport = lazy(() => import('./pages/admin/SalesReport'));
+const NewArrivalsManager = lazy(() => import('./pages/admin/NewArrivalsManager'));
+const DealBannersManager = lazy(() => import('./pages/admin/DealBannersManager'));
 
 const LoadingSpinner = () => (
   <div className="flex items-center justify-center h-full w-full py-20">
@@ -64,9 +66,14 @@ const adminChildrenRoutes = [
   { path: 'users', element: <Suspense fallback={<LoadingSpinner />}><Users /></Suspense> },
   { path: 'coupons', element: <Suspense fallback={<LoadingSpinner />}><Coupons /></Suspense> },
   { path: 'hero-banners', element: <Suspense fallback={<LoadingSpinner />}><HeroBanners /></Suspense> },
+  { path: 'deal-banners', element: <Suspense fallback={<LoadingSpinner />}><DealBannersManager /></Suspense> },
+  { path: 'deal-of-the-week', element: <Suspense fallback={<LoadingSpinner />}><DealBannersManager /></Suspense> },
+  { path: 'latest-apple', element: <Suspense fallback={<LoadingSpinner />}><NewArrivalsManager /></Suspense> },
+  { path: 'new-arrivals', element: <Suspense fallback={<LoadingSpinner />}><NewArrivalsManager /></Suspense> },
   { path: 'apple-categories', element: <Suspense fallback={<LoadingSpinner />}><AppleCategories /></Suspense> },
   { path: 'testimonials', element: <Suspense fallback={<LoadingSpinner />}><Testimonials /></Suspense> },
   { path: 'navbar-menu', element: <Suspense fallback={<LoadingSpinner />}><NavbarManager /></Suspense> },
+  { path: 'navbar-dropdown', element: <Suspense fallback={<LoadingSpinner />}><NavbarManager /></Suspense> },
   { path: 'category-icons', element: <Suspense fallback={<LoadingSpinner />}><CategoryIconsManager /></Suspense> },
   { path: 'applecare', element: <Suspense fallback={<LoadingSpinner />}><AppleCareManager /></Suspense> },
   { path: 'display-applecare', element: <Suspense fallback={<LoadingSpinner />}><DisplayAppleCareManager /></Suspense> },
