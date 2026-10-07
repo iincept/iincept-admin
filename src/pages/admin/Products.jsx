@@ -667,27 +667,29 @@ export default function Products() {
     });
 
     const inputDisc = Number(productForm.discountPrice || 0);
+    const parentPrice = Number(productForm.price || 0);
     let calcPercent = 0;
     if (inputDisc > 0 && inputDisc <= 99) {
       calcPercent = Math.round(inputDisc);
-    } else if (inputDisc > 99 && Number(productForm.price) > inputDisc) {
-      calcPercent = Math.round(((Number(productForm.price) - inputDisc) / Number(productForm.price)) * 100);
-    }
-
-    // If parent discount is cleared (0), propagate clearing to all variants
-    // so stale per-variant discountInput values don't override the removal
-    if (inputDisc === 0) {
-      finalVariants = finalVariants.map(v => ({ ...v, discountInput: 0, discountPercent: 0 }));
+    } else if (inputDisc > 99 && parentPrice > inputDisc) {
+      calcPercent = Math.round(((parentPrice - inputDisc) / parentPrice) * 100);
     }
 
     const finalVariantsWithPrice = finalVariants.map(v => {
-      const vPrice = Number(v.price || productForm.price || 0);
-      // If user explicitly cleared the discount field (discountInput = ""), treat as 0 (no discount)
-      const rawDiscInput = (v.discountInput !== undefined && v.discountInput !== null && v.discountInput !== "") 
+      const vPrice = Number(v.price || parentPrice || 0);
+      let rawDiscInput = (v.discountInput !== undefined && v.discountInput !== null && v.discountInput !== "") 
         ? v.discountInput 
-        : 0;  // cleared = no discount, do NOT fall back to old discountPercent or inputDisc
-      const vDiscRaw = rawDiscInput !== "" && rawDiscInput !== undefined && rawDiscInput !== null ? Number(rawDiscInput) : 0;
-      let vDiscPrice = vPrice;
+        : (v.discountPercent !== undefined && v.discountPercent !== null && v.discountPercent !== ""
+            ? v.discountPercent
+            : (v.discount !== undefined && v.discount !== null && v.discount !== "" ? v.discount : ""));
+
+      // Fall back to top-level parent discount if variant does not have an explicit discount
+      if ((rawDiscInput === "" || rawDiscInput === null || rawDiscInput === undefined) && inputDisc > 0) {
+        rawDiscInput = inputDisc;
+      }
+
+      const vDiscRaw = (rawDiscInput !== "" && rawDiscInput !== undefined && rawDiscInput !== null) ? Number(rawDiscInput) : 0;
+      let vDiscPrice = 0;
       let vDiscPercent = 0;
 
       if (vDiscRaw > 0 && vDiscRaw <= 99) {
@@ -702,7 +704,6 @@ export default function Products() {
           vDiscPercent = Math.round(((vPrice - vDiscRaw) / vPrice) * 100);
         }
       } else {
-        // No discount set — send discountPrice = 0 explicitly so server knows discount was removed
         vDiscPercent = 0;
         vDiscPrice = 0;
       }
@@ -712,17 +713,39 @@ export default function Products() {
         price: vPrice,
         discountPrice: vDiscPrice,
         discountPercent: vDiscPercent,
-        discountInput: vDiscRaw,
+        discount: vDiscPercent || (vDiscRaw > 0 ? vDiscRaw : 0),
+        discountInput: vDiscRaw > 0 ? vDiscRaw : "",
         stock: Number(v.stock || 0)
       };
     });
 
+    const validVariantDiscPrices = finalVariantsWithPrice
+      .filter(v => Number(v.discountPrice) > 0 && Number(v.discountPrice) < Number(v.price))
+      .map(v => Number(v.discountPrice));
+    const validVariantDiscPercents = finalVariantsWithPrice
+      .filter(v => Number(v.discountPercent) > 0)
+      .map(v => Number(v.discountPercent));
+
+    let finalParentDiscPrice = 0;
+    let finalParentDiscPercent = 0;
+
+    if (validVariantDiscPrices.length > 0) {
+      finalParentDiscPrice = Math.min(...validVariantDiscPrices);
+      finalParentDiscPercent = Math.max(...validVariantDiscPercents);
+    } else if (inputDisc > 0) {
+      finalParentDiscPercent = calcPercent;
+      finalParentDiscPrice = inputDisc <= 99 ? Math.round(parentPrice - (parentPrice * inputDisc / 100)) : inputDisc;
+    } else {
+      finalParentDiscPrice = 0;
+      finalParentDiscPercent = 0;
+    }
+
     const formattedProduct = {
       ...productForm,
       price: Number(productForm.price || finalVariantsWithPrice[0]?.price || 0),
-      // Send discountPrice=0 explicitly when admin cleared discount (so server clears all variant discounts too)
-      discountPrice: Number(inputDisc === 0 ? 0 : (finalVariantsWithPrice[0]?.discountPrice ?? 0)),
-      discountPercent: Number(calcPercent !== undefined ? calcPercent : (finalVariantsWithPrice[0]?.discountPercent ?? 0)),
+      discountPrice: finalParentDiscPrice,
+      discountPercent: finalParentDiscPercent,
+      discount: finalParentDiscPercent,
       stock: finalVariantsWithPrice.reduce((acc, v) => acc + Number(v.stock || 0), 0),
       sizes: finalSizes,
       accessoriesSizes: variantAccessoriesSizes,
@@ -790,7 +813,9 @@ export default function Products() {
     const mappedVariants = prodVariants.map(v => {
       let discVal = (v.discountInput !== undefined && v.discountInput !== null && v.discountInput !== '')
         ? v.discountInput
-        : (v.discountPercent !== undefined && v.discountPercent !== null ? v.discountPercent : '');
+        : (v.discountPercent !== undefined && v.discountPercent !== null && v.discountPercent !== '' 
+            ? v.discountPercent 
+            : (v.discount !== undefined && v.discount !== null && v.discount !== '' ? v.discount : ''));
 
       if (discVal === '' || discVal === undefined) {
         if (v.discountPrice !== undefined && v.discountPrice !== null && Number(v.discountPrice) > 0 && v.price && Number(v.price) > Number(v.discountPrice)) {
@@ -799,13 +824,13 @@ export default function Products() {
         }
       }
 
+      const numDisc = (discVal !== '' && discVal !== undefined && discVal !== null) ? Number(discVal) : null;
+
       return {
         ...v,
-        // discountInput: use stored value, or '' if zero/absent so field appears empty
-        discountInput: (v.discountInput !== undefined && v.discountInput !== null && v.discountInput !== 0 && v.discountInput !== '') 
-          ? v.discountInput 
-          : (discVal !== undefined && discVal !== null && discVal !== 0 ? discVal : ''),
-        // discountPrice: use actual stored value; do NOT fallback to price when discount is removed
+        discount: numDisc !== null ? numDisc : (v.discount ?? 0),
+        discountPercent: numDisc !== null ? numDisc : (v.discountPercent ?? 0),
+        discountInput: (numDisc !== null && numDisc !== 0) ? numDisc : '',
         discountPrice: (v.discountPrice !== undefined && v.discountPrice !== null) ? v.discountPrice : (v.price || '')
       };
     });
@@ -2313,11 +2338,16 @@ export default function Products() {
                               <input
                                 type="text"
                                 placeholder="e.g. 10 (for 10% OFF) or 0"
-                                value={v.discountInput !== undefined && v.discountInput !== null ? v.discountInput : (v.discountPercent !== undefined ? v.discountPercent : '')}
+                                value={v.discountInput !== undefined && v.discountInput !== null && v.discountInput !== '' ? v.discountInput : (v.discountPercent !== undefined && v.discountPercent !== null && v.discountPercent !== '' ? v.discountPercent : (v.discount !== undefined && v.discount !== null && v.discount !== '' ? v.discount : ''))}
                                 onChange={(e) => {
                                   const val = e.target.value;
                                   const updated = [...productForm.variants];
-                                  updated[vIdx] = { ...v, discountInput: val };
+                                  updated[vIdx] = { 
+                                    ...v, 
+                                    discountInput: val,
+                                    discountPercent: val !== '' ? Number(val) : 0,
+                                    discount: val !== '' ? Number(val) : 0
+                                  };
                                   setProductForm({ ...productForm, variants: updated });
                                 }}
                                 className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 focus:border-[#0071e3] outline-none text-xs font-bold text-emerald-700 bg-emerald-50/50"
@@ -2326,8 +2356,10 @@ export default function Products() {
                                 const vPrice = Number(v.price || productForm.price || 0);
                                 const dRaw = v.discountInput !== undefined && v.discountInput !== null && v.discountInput !== '' 
                                   ? v.discountInput 
-                                  : (v.discountPercent !== undefined ? v.discountPercent : 0);
-                                const dVal = Number(dRaw);
+                                  : (v.discountPercent !== undefined && v.discountPercent !== null && v.discountPercent !== '' 
+                                      ? v.discountPercent 
+                                      : (v.discount !== undefined && v.discount !== null ? v.discount : 0));
+                                const dVal = Number(dRaw || 0);
                                 if (vPrice > 0) {
                                   let calcSelling = vPrice;
                                   let calcPct = 0;
