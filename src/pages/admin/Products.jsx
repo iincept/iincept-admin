@@ -674,11 +674,18 @@ export default function Products() {
       calcPercent = Math.round(((Number(productForm.price) - inputDisc) / Number(productForm.price)) * 100);
     }
 
+    // If parent discount is cleared (0), propagate clearing to all variants
+    // so stale per-variant discountInput values don't override the removal
+    if (inputDisc === 0) {
+      finalVariants = finalVariants.map(v => ({ ...v, discountInput: 0, discountPercent: 0 }));
+    }
+
     const finalVariantsWithPrice = finalVariants.map(v => {
       const vPrice = Number(v.price || productForm.price || 0);
+      // If user explicitly cleared the discount field (discountInput = ""), treat as 0 (no discount)
       const rawDiscInput = (v.discountInput !== undefined && v.discountInput !== null && v.discountInput !== "") 
         ? v.discountInput 
-        : (v.discountPercent !== undefined && v.discountPercent !== null ? v.discountPercent : inputDisc);
+        : 0;  // cleared = no discount, do NOT fall back to old discountPercent or inputDisc
       const vDiscRaw = rawDiscInput !== "" && rawDiscInput !== undefined && rawDiscInput !== null ? Number(rawDiscInput) : 0;
       let vDiscPrice = vPrice;
       let vDiscPercent = 0;
@@ -695,8 +702,9 @@ export default function Products() {
           vDiscPercent = Math.round(((vPrice - vDiscRaw) / vPrice) * 100);
         }
       } else {
+        // No discount set — send discountPrice = 0 explicitly so server knows discount was removed
         vDiscPercent = 0;
-        vDiscPrice = vPrice;
+        vDiscPrice = 0;
       }
 
       return {
@@ -712,8 +720,9 @@ export default function Products() {
     const formattedProduct = {
       ...productForm,
       price: Number(productForm.price || finalVariantsWithPrice[0]?.price || 0),
-      discountPrice: Number(finalVariantsWithPrice[0]?.discountPrice || productForm.discountPrice || 0),
-      discountPercent: calcPercent || finalVariantsWithPrice[0]?.discountPercent || 0,
+      // Send discountPrice=0 explicitly when admin cleared discount (so server clears all variant discounts too)
+      discountPrice: Number(inputDisc === 0 ? 0 : (finalVariantsWithPrice[0]?.discountPrice ?? 0)),
+      discountPercent: Number(calcPercent !== undefined ? calcPercent : (finalVariantsWithPrice[0]?.discountPercent ?? 0)),
       stock: finalVariantsWithPrice.reduce((acc, v) => acc + Number(v.stock || 0), 0),
       sizes: finalSizes,
       accessoriesSizes: variantAccessoriesSizes,
@@ -792,8 +801,12 @@ export default function Products() {
 
       return {
         ...v,
-        discountInput: discVal !== undefined && discVal !== null ? discVal : 0,
-        discountPrice: v.discountPrice || v.price || ''
+        // discountInput: use stored value, or '' if zero/absent so field appears empty
+        discountInput: (v.discountInput !== undefined && v.discountInput !== null && v.discountInput !== 0 && v.discountInput !== '') 
+          ? v.discountInput 
+          : (discVal !== undefined && discVal !== null && discVal !== 0 ? discVal : ''),
+        // discountPrice: use actual stored value; do NOT fallback to price when discount is removed
+        discountPrice: (v.discountPrice !== undefined && v.discountPrice !== null) ? v.discountPrice : (v.price || '')
       };
     });
 
@@ -801,7 +814,11 @@ export default function Products() {
       title: prod.title || '',
       description: prod.description || '',
       price: prod.price || '',
-      discountPrice: prod.discountPercent || prod.discountPrice || 0,
+      // Show the discount input as empty when no active discount (discountPrice=0)
+      // Use discountPercent as the display value when there IS a real discount
+      discountPrice: (prod.discountPrice && Number(prod.discountPrice) > 0 && Number(prod.discountPrice) < Number(prod.price))
+        ? prod.discountPrice  // actual discounted selling price
+        : (prod.discountPercent && Number(prod.discountPercent) > 0 ? prod.discountPercent : ''),
       stock: prod.stock || '',
       brand: prod.brand || 'Apple',
       category: prod.category?._id || prod.category || '',
